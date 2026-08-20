@@ -238,7 +238,7 @@ def fetch_players_with_history(year: int = 2025, week: int = 0, limit: int = 100
             player.seasons_played = len(seasons)
             total_points = sum(pts for _, pts, _ in seasons)
             total_games = sum(gp for _, _, gp in seasons)
-            total_possible = len(seasons) * 17
+            total_possible = sum(17 if yr >= 2021 else 16 for yr, _, _ in seasons)
             player.games_played_3yr = total_games
             player.games_missed_3yr = total_possible - total_games
             player.avg_pts_g_3yr = round(total_points / total_games, 1) if total_games > 0 else None

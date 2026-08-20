@@ -3,7 +3,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import threading
-from fantasy_football.player_db import PlayerDatabase
+from fantasy_football.player_db import PlayerDatabase, games_in_season
 
 
 RANKING_COLUMNS = [
@@ -363,7 +363,7 @@ class FantasyFootballApp:
                 record.position,
                 record.current_team,
                 season.stats.games_played,
-                17 - season.stats.games_played,
+                games_in_season(int(self.year_var.get())) - season.stats.games_played,
                 round(season.fantasy_points, 2),
                 season.pts_per_game,
                 record.career_pts_g if record.career_pts_g else "--",

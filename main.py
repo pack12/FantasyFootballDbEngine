@@ -28,7 +28,7 @@ def main():
 
     scored = score_players(players)
 
-    total_games = 1 if args.week > 0 else 17
+    total_games = 1 if args.week > 0 else (17 if args.year >= 2021 else 16)
 
     hist_header = ""
     if args.history:
