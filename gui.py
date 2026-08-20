@@ -3,12 +3,13 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import threading
-from fantasy_football.player_db import PlayerDatabase, games_in_season
+from fantasy_football.player_db import PlayerDatabase, games_in_season, BIRTHS_CSV
 
 
 RANKING_COLUMNS = [
     ("rank", "Rank", 50),
     ("name", "Player", 180),
+    ("age", "Age", 45),
     ("position", "Pos", 50),
     ("team", "Team", 55),
     ("gp", "GP", 45),
@@ -46,7 +47,7 @@ class FantasyFootballApp:
         if force_refresh:
             import os
             from fantasy_football.player_db import SEASONS_CSV, COLLEGE_CSV, META_FILE, _DATA_DIR
-            for f in (SEASONS_CSV, COLLEGE_CSV, META_FILE):
+            for f in (SEASONS_CSV, COLLEGE_CSV, BIRTHS_CSV, META_FILE):
                 if os.path.exists(f):
                     os.remove(f)
             # Remove any leftover data dir contents
@@ -357,9 +358,12 @@ class FantasyFootballApp:
             rel = record.reliability_score
             col_scr = record.college_dom_score
 
+            age = record.age if record.age is not None else "--"
+
             rows.append((
                 i,
                 record.name,
+                age,
                 record.position,
                 record.current_team,
                 season.stats.games_played,

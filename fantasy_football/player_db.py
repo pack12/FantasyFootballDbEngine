@@ -1,0 +1,803 @@
+"""
+Player database that loads up to 20 years of NFL data from nflverse and provides
+career search and year-by-year breakdowns.  Results are cached to CSV for fast
+subsequent launches.  ESPN endpoints are used on-demand for age and college stats.
+"""
+import csv
+import io
+import json
+import os
+from datetime import date
+import requests
+from dataclasses import dataclass, field, fields
+from .models import PlayerStats
+from .scoring import calculate_score
+
+_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR = os.path.join(os.path.dirname(_DIR), "data")
+
+
+def games_in_season(year: int) -> int:
+    """Return the number of regular-season games for a given NFL season."""
+    return 17 if year >= 2021 else 16
+SEASONS_CSV = os.path.join(_DATA_DIR, "seasons.csv")
+COLLEGE_CSV = os.path.join(_DATA_DIR, "college.csv")
+BIRTHS_CSV = os.path.join(_DATA_DIR, "births.csv")
+META_FILE = os.path.join(_DATA_DIR, "meta.json")
+
+_CACHE_VERSION = 2  # bump when cache format changes
+
+# nflverse data URLs
+NFLVERSE_URL = "https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_{year}.csv"
+NFLVERSE_ROSTER_URL = "https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_{year}.csv"
+NFLVERSE_POSITIONS = {"QB", "RB", "WR", "TE"}
+
+# Age decline thresholds by position — age at which penalty starts
+_AGE_THRESHOLD = {"QB": 32, "WR": 29, "RB": 27, "TE": 29}
+_AGE_PENALTY_RATE = 0.03  # 3% per year beyond threshold
+
+# nflverse column name → PlayerStats field name
+_NFLVERSE_STAT_MAP = {
+    "passing_yards": "passing_yards",
+    "passing_tds": "passing_tds",
+    "interceptions": "interceptions",
+    "attempts": "passing_attempts",
+    "completions": "passing_completions",
+    "rushing_yards": "rushing_yards",
+    "rushing_tds": "rushing_tds",
+    "carries": "rushing_attempts",
+    "receptions": "receptions",
+    "receiving_yards": "receiving_yards",
+    "receiving_tds": "receiving_tds",
+    "targets": "targets",
+}
+_NFLVERSE_FUMBLE_COLS = ["rushing_fumbles_lost", "receiving_fumbles_lost", "sack_fumbles_lost"]
+_NFLVERSE_2PT_COLS = ["passing_2pt_conversions", "rushing_2pt_conversions", "receiving_2pt_conversions"]
+
+# ESPN endpoints (fallback for missing nflverse years + on-demand lookups)
+ESPN_BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{year}/segments/0/leaguedefaults/3"
+ESPN_ATHLETE_URL = "https://site.api.espn.com/apis/common/v3/sports/football/nfl/athletes/{athlete_id}"
+ESPN_SEARCH_URL = "https://site.web.api.espn.com/apis/common/v3/search"
+ESPN_COLLEGE_URL = "https://site.api.espn.com/apis/common/v3/sports/football/college-football/athletes/{athlete_id}/stats"
+ESPN_POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE"}
+ESPN_SLOT_IDS = [0, 2, 4, 6]
+ESTIMATED_COLLEGE_GAMES = 13
+
+# PlayerStats field names for CSV columns
+_STAT_FIELDS = [f.name for f in fields(PlayerStats)]
+
+
+def _safe_float(val) -> float:
+    """Convert a CSV value to float, handling empty/NA values."""
+    if not val or val in ("NA", "None", "nan", ""):
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_college_season(stats: list[str], names: list[str]) -> dict:
+    """Parse a college season stats array into a dict."""
+    result = {}
+    for name, value in zip(names, stats):
+        try:
+            result[name] = float(value.replace(",", ""))
+        except (ValueError, AttributeError):
+            result[name] = 0
+    return result
+
+
+@dataclass
+class SeasonRecord:
+    year: int
+    team: str
+    position: str
+    stats: PlayerStats
+    fantasy_points: float = 0.0
+    pts_per_game: float = 0.0
+
+
+@dataclass
+class PlayerRecord:
+    """Full career record for a player."""
+    player_id: str  # nflverse GSIS ID (e.g. "00-0033873")
+    name: str
+    position: str
+    current_team: str
+    espn_id: int | None = None  # for ESPN lookups (college)
+    birth_date: date | None = None  # from nflverse rosters
+    seasons: list[SeasonRecord] = field(default_factory=list)
+    college_dom_score: float | None = None
+    college_final_year: str = ""
+
+    @property
+    def age(self) -> int | None:
+        if self.birth_date is None:
+            return None
+        today = date.today()
+        return today.year - self.birth_date.year - (
+            (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
+        )
+
+    @property
+    def total_games(self) -> int:
+        return sum(s.stats.games_played for s in self.seasons)
+
+    @property
+    def total_games_missed(self) -> int:
+        total_possible = sum(games_in_season(s.year) for s in self.seasons)
+        return total_possible - self.total_games
+
+    @property
+    def career_pts_g(self) -> float | None:
+        tg = self.total_games
+        if tg == 0:
+            return None
+        return round(sum(s.fantasy_points for s in self.seasons) / tg, 1)
+
+    @property
+    def career_total_pts(self) -> float:
+        return round(sum(s.fantasy_points for s in self.seasons), 1)
+
+    @property
+    def reliability_score(self) -> float | None:
+        if not self.seasons:
+            return None
+        weight_table = [0.50, 0.30, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        sorted_seasons = sorted(self.seasons, key=lambda s: s.year, reverse=True)
+        pts_g_list = [s.pts_per_game for s in sorted_seasons if s.stats.games_played > 0]
+        if not pts_g_list:
+            return None
+        weights = weight_table[:len(pts_g_list)]
+        w_sum = sum(weights)
+        recency_pts_g = sum(pg * w for pg, w in zip(pts_g_list, weights)) / w_sum
+        total_possible = sum(games_in_season(s.year) for s in self.seasons)
+        availability = self.total_games / total_possible if total_possible > 0 else 0
+
+        # Age penalty: position-aware decline factor
+        age_factor = 1.0
+        player_age = self.age
+        if player_age is not None:
+            threshold = _AGE_THRESHOLD.get(self.position, 29)
+            years_over = max(0, player_age - threshold)
+            age_factor = max(0.0, 1.0 - years_over * _AGE_PENALTY_RATE)
+
+        return round(recency_pts_g * availability * age_factor, 1)
+
+    @property
+    def breakout(self) -> bool:
+        """Latest season Pts/G is 40%+ above the previous season's Pts/G."""
+        sorted_seasons = sorted(self.seasons, key=lambda s: s.year)
+        playable = [s for s in sorted_seasons if s.stats.games_played > 0]
+        if len(playable) < 2:
+            return False
+        latest = playable[-1]
+        previous = playable[-2]
+        return previous.pts_per_game > 0 and latest.pts_per_game >= previous.pts_per_game * 1.4
+
+
+class PlayerDatabase:
+    """Loads and indexes all players across multiple seasons."""
+
+    def __init__(self):
+        self.players: dict[str, PlayerRecord] = {}  # player_id -> PlayerRecord
+        self.loaded = False
+        self._on_progress = None
+        self._on_complete = None
+
+    def set_callbacks(self, on_progress=None, on_complete=None):
+        self._on_progress = on_progress
+        self._on_complete = on_complete
+
+    def load(self, end_year: int = 2025, num_years: int = 27):
+        """Load player data — from CSV cache if available, otherwise from nflverse."""
+        start_year = end_year - num_years + 1
+        years = list(range(start_year, end_year + 1))
+
+        # Check cache version — clear stale caches
+        meta = self._load_meta()
+        if meta.get("version") != _CACHE_VERSION:
+            for f in (SEASONS_CSV, COLLEGE_CSV, META_FILE):
+                if os.path.exists(f):
+                    os.remove(f)
+            meta = {}
+
+        attempted_years = set(meta.get("attempted_years", []))
+
+        # Try loading from cache first
+        cached_years = self._load_from_csv()
+        if cached_years:
+            missing_years = [y for y in years
+                             if y not in cached_years and y not in attempted_years]
+            if not missing_years:
+                if self._on_progress:
+                    self._on_progress("Loaded from cache.")
+                self._score_all()
+                self._load_college_from_csv()
+                self._load_births_from_csv()
+                if not any(r.birth_date for r in self.players.values()):
+                    self._fetch_and_cache_births()
+                self.loaded = True
+                if self._on_complete:
+                    year_range = f"{min(cached_years)}-{max(cached_years)}"
+                    self._on_complete(f"Loaded {len(self.players)} players, {len(cached_years)} seasons ({year_range}) from cache.")
+                return
+            years = missing_years
+
+        for i, year in enumerate(years):
+            if self._on_progress:
+                self._on_progress(f"Fetching {year} season... ({i + 1}/{len(years)})")
+            attempted_years.add(year)
+            try:
+                self._load_year_nflverse(year)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 404:
+                    # nflverse doesn't have this year — try ESPN as fallback
+                    if self._on_progress:
+                        self._on_progress(f"Fetching {year} season from ESPN (fallback)... ({i + 1}/{len(years)})")
+                    try:
+                        self._load_year_espn(year)
+                    except Exception:
+                        continue
+                else:
+                    continue
+            except Exception:
+                continue
+
+        # Merge any ESPN-fallback players into nflverse records by name
+        self._merge_espn_players()
+
+        self._score_all()
+
+        # Fetch birth dates from nflverse rosters
+        self._fetch_and_cache_births()
+
+        # Save everything to CSV for next time
+        if self._on_progress:
+            self._on_progress("Saving to cache...")
+        self._save_to_csv()
+        self._save_meta(attempted_years)
+
+        self.loaded = True
+        all_years = set()
+        for r in self.players.values():
+            for s in r.seasons:
+                all_years.add(s.year)
+        if self._on_complete:
+            if all_years:
+                year_range = f"{min(all_years)}-{max(all_years)}"
+                self._on_complete(f"Loaded {len(self.players)} players, {len(all_years)} seasons ({year_range}).")
+            else:
+                self._on_complete("No player data found.")
+
+    def _score_all(self):
+        """Score all seasons and update current team to most recent."""
+        for record in self.players.values():
+            for season in record.seasons:
+                season.fantasy_points = calculate_score(season.stats)
+                gp = season.stats.games_played
+                season.pts_per_game = round(season.fantasy_points / gp, 1) if gp > 0 else 0.0
+            # Set current_team from most recent season
+            if record.seasons:
+                latest = max(record.seasons, key=lambda s: s.year)
+                record.current_team = latest.team
+
+    # ── nflverse data loading ─────────────────────────────────
+
+    def _load_year_nflverse(self, year: int):
+        """Download one season from nflverse and aggregate weekly stats into season totals."""
+        url = NFLVERSE_URL.format(year=year)
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        reader = csv.DictReader(io.StringIO(response.text))
+
+        # Accumulate weekly stats per player: player_id -> {name, pos, team, accum dict}
+        accumulators: dict[str, dict] = {}
+
+        for row in reader:
+            if row.get("season_type") != "REG":
+                continue
+            pos = row.get("position", "")
+            if pos not in NFLVERSE_POSITIONS:
+                continue
+
+            pid = row.get("player_id", "")
+            if not pid:
+                continue
+
+            if pid not in accumulators:
+                accumulators[pid] = {
+                    "name": row.get("player_display_name", "Unknown"),
+                    "position": pos,
+                    "team": row.get("recent_team", "FA"),
+                    "games": 0,
+                    "stats": {f: 0.0 for f in _STAT_FIELDS},
+                }
+
+            acc = accumulators[pid]
+            acc["games"] += 1
+            acc["team"] = row.get("recent_team", acc["team"])
+
+            # Accumulate mapped stat columns
+            for nfl_col, our_field in _NFLVERSE_STAT_MAP.items():
+                acc["stats"][our_field] += _safe_float(row.get(nfl_col, "0"))
+
+            # Fumbles lost (sum of rushing + receiving + sack)
+            for col in _NFLVERSE_FUMBLE_COLS:
+                acc["stats"]["fumbles_lost"] += _safe_float(row.get(col, "0"))
+
+            # 2-point conversions (sum of passing + rushing + receiving)
+            for col in _NFLVERSE_2PT_COLS:
+                acc["stats"]["two_point_conversions"] += _safe_float(row.get(col, "0"))
+
+        # Convert accumulators into PlayerRecords
+        for pid, acc in accumulators.items():
+            if acc["games"] == 0:
+                continue
+
+            # Build PlayerStats with correct types
+            stats = PlayerStats()
+            for field_name in _STAT_FIELDS:
+                val = acc["stats"][field_name]
+                attr_type = type(getattr(PlayerStats(), field_name))
+                if attr_type == int:
+                    setattr(stats, field_name, int(round(val)))
+                else:
+                    setattr(stats, field_name, val)
+            stats.games_played = acc["games"]
+
+            if pid not in self.players:
+                self.players[pid] = PlayerRecord(
+                    player_id=pid,
+                    name=acc["name"],
+                    position=acc["position"],
+                    current_team=acc["team"],
+                )
+
+            record = self.players[pid]
+            record.current_team = acc["team"]
+            record.name = acc["name"]
+
+            existing_years = {s.year for s in record.seasons}
+            if year not in existing_years:
+                record.seasons.append(SeasonRecord(
+                    year=year,
+                    team=acc["team"],
+                    position=acc["position"],
+                    stats=stats,
+                ))
+
+    # ── Merging ESPN fallback players into nflverse records ─────
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize a player name for matching: lowercase, strip punctuation and suffixes."""
+        import re
+        name = re.sub(r"[^a-z\s]", "", name.lower()).strip()
+        # Strip common suffixes (jr, sr, ii, iii, iv, v)
+        name = re.sub(r"\s+(jr|sr|ii|iii|iv|v)$", "", name)
+        return name
+
+    def _merge_espn_players(self):
+        """Merge ESPN-sourced players into nflverse records by matching name + position."""
+        espn_pids = [pid for pid in self.players if pid.startswith("espn-")]
+        if not espn_pids:
+            return
+
+        # Build normalized name+position -> nflverse player_id lookup
+        nflverse_by_name: dict[str, str] = {}
+        for pid, record in self.players.items():
+            if not pid.startswith("espn-"):
+                key = f"{self._normalize_name(record.name)}|{record.position}"
+                nflverse_by_name[key] = pid
+
+        to_delete = []
+        for espn_pid in espn_pids:
+            espn_record = self.players[espn_pid]
+            key = f"{self._normalize_name(espn_record.name)}|{espn_record.position}"
+            nfl_pid = nflverse_by_name.get(key)
+
+            if nfl_pid:
+                # Merge seasons into existing nflverse record
+                nfl_record = self.players[nfl_pid]
+                existing_years = {s.year for s in nfl_record.seasons}
+                for season in espn_record.seasons:
+                    if season.year not in existing_years:
+                        nfl_record.seasons.append(season)
+                # Carry over ESPN ID
+                if espn_record.espn_id:
+                    nfl_record.espn_id = espn_record.espn_id
+                # Update team to latest
+                nfl_record.current_team = espn_record.current_team
+                to_delete.append(espn_pid)
+            # else: no nflverse match, keep the ESPN record as-is
+
+        for pid in to_delete:
+            del self.players[pid]
+
+    # ── ESPN fallback for missing nflverse years ───────────────
+
+    def _load_year_espn(self, year: int):
+        """Fallback: load a season from ESPN's fantasy API."""
+        from .espn_client import _find_stat_set, _parse_stats, _get_team_abbrev
+
+        url = ESPN_BASE_URL.format(year=year)
+        params = {"view": "kona_player_info"}
+        filters = {
+            "players": {
+                "filterSlotIds": {"value": ESPN_SLOT_IDS},
+                "limit": 300,
+                "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                "filterStatus": {"value": ["FREEAGENT", "WAIVERS", "ONTEAM"]},
+            }
+        }
+        headers = {"X-Fantasy-Filter": json.dumps(filters)}
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        for entry in data.get("players", []):
+            player_data = entry.get("player", {})
+            espn_id = player_data.get("id", 0)
+            position_id = player_data.get("defaultPositionId")
+
+            if position_id not in ESPN_POSITION_MAP:
+                continue
+
+            position = ESPN_POSITION_MAP[position_id]
+            name = player_data.get("fullName", "Unknown")
+            team = _get_team_abbrev(player_data.get("proTeamId", 0))
+
+            stat_set = _find_stat_set(player_data.get("stats", []), year, 0)
+            if not stat_set:
+                continue
+
+            stats = _parse_stats(stat_set.get("stats", {}))
+            if stats.games_played == 0:
+                continue
+
+            # Use ESPN ID as player_id (as string) for ESPN-sourced players
+            pid = f"espn-{espn_id}"
+
+            if pid not in self.players:
+                self.players[pid] = PlayerRecord(
+                    player_id=pid,
+                    name=name,
+                    position=position,
+                    current_team=team,
+                    espn_id=espn_id,
+                )
+
+            record = self.players[pid]
+            record.current_team = team
+            record.name = name
+
+            existing_years = {s.year for s in record.seasons}
+            if year not in existing_years:
+                record.seasons.append(SeasonRecord(
+                    year=year,
+                    team=team,
+                    position=position,
+                    stats=stats,
+                ))
+
+    # ── On-demand ESPN lookups (age, college) ─────────────────
+
+    def fetch_player_details(self, player_id: str):
+        """On-demand: look up ESPN ID, then fetch college stats."""
+        record = self.players.get(player_id)
+        if not record:
+            return
+
+        # Fetch college stats for young players
+        if record.college_dom_score is None and len(record.seasons) < 3:
+            # Find ESPN ID if we don't have one yet
+            if record.espn_id is None:
+                record.espn_id = self._find_espn_id(record.name)
+            if record.espn_id is not None:
+                self._fetch_college_for_player(record)
+
+    def _find_espn_id(self, name: str) -> int | None:
+        """Search ESPN for a player by name to find their athlete ID."""
+        try:
+            params = {
+                "query": name,
+                "limit": 5,
+                "type": "player",
+                "sport": "football",
+                "league": "nfl",
+            }
+            resp = requests.get(ESPN_SEARCH_URL, params=params, timeout=10)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+
+            # Response may have items at top level or nested under results
+            items = data.get("items", [])
+            if not items:
+                for section in data.get("results", []):
+                    items.extend(section.get("items", []))
+
+            # Look for exact name match first
+            for item in items:
+                if item.get("displayName", "").lower() == name.lower():
+                    return int(item["id"])
+
+            # Fallback: first result
+            if items:
+                return int(items[0]["id"])
+        except Exception:
+            pass
+        return None
+
+    def _fetch_college_for_player(self, record: PlayerRecord):
+        """Fetch college stats for a single player using their ESPN ID."""
+        if record.espn_id is None:
+            return
+        try:
+            url = ESPN_COLLEGE_URL.format(athlete_id=record.espn_id)
+            response = requests.get(url, timeout=10)
+            if response.status_code != 200:
+                return
+
+            data = response.json()
+            categories = {c["name"]: c for c in data.get("categories", [])}
+
+            rushing = categories.get("rushing", {})
+            receiving = categories.get("receiving", {})
+            passing = categories.get("passing", {})
+
+            rush_seasons = rushing.get("statistics", [])
+            rec_seasons = receiving.get("statistics", [])
+            pass_seasons = passing.get("statistics", [])
+
+            if not rush_seasons and not rec_seasons and not pass_seasons:
+                return
+
+            final_rush = _parse_college_season(rush_seasons[-1]["stats"], rushing.get("names", [])) if rush_seasons else {}
+            final_rec = _parse_college_season(rec_seasons[-1]["stats"], receiving.get("names", [])) if rec_seasons else {}
+            final_pass = _parse_college_season(pass_seasons[-1]["stats"], passing.get("names", [])) if pass_seasons else {}
+
+            final_year = ""
+            for seasons_list in [pass_seasons, rush_seasons, rec_seasons]:
+                if seasons_list:
+                    final_year = str(seasons_list[-1].get("season", {}).get("year", ""))
+                    break
+
+            rush_yds = final_rush.get("rushingYards", 0)
+            rush_tds = final_rush.get("rushingTouchdowns", 0)
+            rec = final_rec.get("receptions", 0)
+            rec_yds = final_rec.get("receivingYards", 0)
+            rec_tds = final_rec.get("receivingTouchdowns", 0)
+            pass_yds = final_pass.get("passingYards", final_pass.get("netPassingYards", 0))
+            pass_tds = final_pass.get("passingTouchdowns", 0)
+            ints = final_pass.get("interceptions", 0)
+
+            fantasy_pts = (pass_yds * 0.04 + pass_tds * 4 + ints * -2 +
+                           rush_yds * 0.1 + rush_tds * 6 +
+                           rec * 1.0 + rec_yds * 0.1 + rec_tds * 6)
+
+            pts_per_game = fantasy_pts / ESTIMATED_COLLEGE_GAMES
+            record.college_dom_score = round(pts_per_game, 1)
+
+            parts = []
+            if pass_yds > 0:
+                parts.append(f"{pass_yds:.0f}yds/{pass_tds:.0f}td/{ints:.0f}int pass")
+            if rush_yds > 0:
+                parts.append(f"{rush_yds:.0f}yds/{rush_tds:.0f}td rush")
+            if rec > 0:
+                parts.append(f"{rec:.0f}rec/{rec_yds:.0f}yds/{rec_tds:.0f}td")
+            record.college_final_year = f"{final_year}: {', '.join(parts)}"
+
+        except requests.RequestException:
+            pass
+
+    # ── CSV persistence ────────────────────────────────────────
+
+    def _load_meta(self) -> dict:
+        """Load metadata (cache version, attempted years)."""
+        if not os.path.exists(META_FILE):
+            return {}
+        try:
+            with open(META_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_meta(self, attempted_years: set[int]):
+        """Save metadata."""
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        with open(META_FILE, "w") as f:
+            json.dump({
+                "version": _CACHE_VERSION,
+                "attempted_years": sorted(attempted_years),
+            }, f)
+
+    def _save_to_csv(self):
+        """Save all season data to CSV."""
+        os.makedirs(_DATA_DIR, exist_ok=True)
+
+        header = ["player_id", "name", "position", "team", "year"] + _STAT_FIELDS
+        with open(SEASONS_CSV, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for record in self.players.values():
+                for s in record.seasons:
+                    row = [record.player_id, record.name, s.position, s.team, s.year]
+                    row += [getattr(s.stats, field) for field in _STAT_FIELDS]
+                    writer.writerow(row)
+
+    def _load_from_csv(self) -> set[int]:
+        """Load season data from CSV. Returns set of years loaded, or empty set if no cache."""
+        if not os.path.exists(SEASONS_CSV):
+            return set()
+
+        if self._on_progress:
+            self._on_progress("Loading from cache...")
+
+        years_loaded = set()
+        try:
+            with open(SEASONS_CSV, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    pid = row["player_id"]
+                    year = int(row["year"])
+                    years_loaded.add(year)
+
+                    name = row["name"]
+                    position = row["position"]
+                    team = row["team"]
+
+                    stats = PlayerStats()
+                    for field_name in _STAT_FIELDS:
+                        val = row.get(field_name, "0")
+                        attr_type = type(getattr(stats, field_name))
+                        if attr_type == float:
+                            setattr(stats, field_name, float(val))
+                        else:
+                            setattr(stats, field_name, int(float(val)))
+
+                    if stats.games_played == 0:
+                        continue
+
+                    if pid not in self.players:
+                        self.players[pid] = PlayerRecord(
+                            player_id=pid,
+                            name=name,
+                            position=position,
+                            current_team=team,
+                        )
+
+                    record = self.players[pid]
+                    record.current_team = team
+                    record.name = name
+
+                    existing_years = {s.year for s in record.seasons}
+                    if year not in existing_years:
+                        record.seasons.append(SeasonRecord(
+                            year=year, team=team, position=position, stats=stats,
+                        ))
+        except Exception:
+            self.players.clear()
+            return set()
+
+        return years_loaded
+
+    def _load_college_from_csv(self):
+        """Load college data from CSV cache."""
+        if not os.path.exists(COLLEGE_CSV):
+            return
+        try:
+            with open(COLLEGE_CSV, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    pid = row["player_id"]
+                    record = self.players.get(pid)
+                    if record:
+                        record.college_dom_score = float(row["college_dom_score"])
+                        record.college_final_year = row.get("college_final_year", "")
+        except Exception:
+            pass
+
+    def _fetch_and_cache_births(self):
+        """Fetch birth dates from nflverse roster data and cache to CSV."""
+        if self._on_progress:
+            self._on_progress("Fetching birth dates from nflverse rosters...")
+
+        # gsis_id -> birth_date, espn_id -> birth_date (for ESPN-fallback players)
+        births_by_gsis: dict[str, str] = {}
+        births_by_espn: dict[str, str] = {}
+
+        # Download rosters for every year from 1999-2026 to cover all players
+        for year in range(2026, 1998, -1):
+            if self._on_progress:
+                self._on_progress(f"Fetching roster {year}...")
+            try:
+                url = NFLVERSE_ROSTER_URL.format(year=year)
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                reader = csv.DictReader(io.StringIO(resp.text))
+                for row in reader:
+                    gsis_id = row.get("gsis_id", "")
+                    espn_id = row.get("espn_id", "")
+                    bd = row.get("birth_date", "")
+                    if not bd:
+                        continue
+                    if gsis_id and gsis_id not in births_by_gsis:
+                        births_by_gsis[gsis_id] = bd
+                    if espn_id and espn_id not in births_by_espn:
+                        births_by_espn[espn_id] = bd
+            except Exception:
+                continue
+
+        # Apply to our players
+        for pid, record in self.players.items():
+            # Try matching by GSIS ID first
+            bd_str = births_by_gsis.get(pid)
+            # For ESPN-fallback players (pid like "espn-12345"), match by ESPN ID
+            if not bd_str and pid.startswith("espn-"):
+                espn_num = pid.removeprefix("espn-")
+                bd_str = births_by_espn.get(espn_num)
+            if bd_str:
+                try:
+                    record.birth_date = date.fromisoformat(bd_str)
+                except ValueError:
+                    pass
+
+        # Cache to CSV
+        self._save_births_csv()
+
+    def _save_births_csv(self):
+        """Save birth dates to CSV cache."""
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        with open(BIRTHS_CSV, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["player_id", "birth_date"])
+            for record in self.players.values():
+                if record.birth_date:
+                    writer.writerow([record.player_id, record.birth_date.isoformat()])
+
+    def _load_births_from_csv(self):
+        """Load birth dates from CSV cache."""
+        if not os.path.exists(BIRTHS_CSV):
+            return
+        try:
+            with open(BIRTHS_CSV, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    pid = row["player_id"]
+                    record = self.players.get(pid)
+                    if record and row.get("birth_date"):
+                        try:
+                            record.birth_date = date.fromisoformat(row["birth_date"])
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+
+    def _save_college_csv(self):
+        """Save college data for all players who have it."""
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        with open(COLLEGE_CSV, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["player_id", "college_dom_score", "college_final_year"])
+            for record in self.players.values():
+                if record.college_dom_score is not None:
+                    writer.writerow([record.player_id, record.college_dom_score,
+                                     record.college_final_year])
+
+    # ── Public API ─────────────────────────────────────────────
+
+    def search(self, query: str, limit: int = 20) -> list[PlayerRecord]:
+        """Search players by name (case-insensitive partial match)."""
+        query = query.strip().lower()
+        if not query:
+            return []
+        results = [p for p in self.players.values() if query in p.name.lower()]
+        results.sort(key=lambda p: p.career_total_pts, reverse=True)
+        return results[:limit]
+
+    def get_player(self, player_id: str) -> PlayerRecord | None:
+        return self.players.get(player_id)
