@@ -2,6 +2,9 @@ from .models import Player, PlayerStats
 
 # PPR scoring rules
 SCORING_RULES = {
+    "passing_yards": 0.04,       # 1 point per 25 yards
+    "passing_tds": 4.0,
+    "interceptions": -2.0,
     "rushing_yards": 0.1,        # 1 point per 10 yards
     "rushing_tds": 6.0,
     "receptions": 1.0,           # PPR: 1 point per reception

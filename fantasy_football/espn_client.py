@@ -4,25 +4,30 @@ from .models import Player, PlayerStats
 
 # ESPN stat ID to our field name mapping
 STAT_ID_MAP = {
+    "0": "passing_attempts",
+    "1": "passing_completions",
+    "3": "passing_yards",
+    "4": "passing_tds",
+    "20": "interceptions",
+    "19": "two_point_conversions",   # passing 2pt
     "23": "rushing_attempts",
     "24": "rushing_yards",
     "25": "rushing_tds",
+    "26": "two_point_conversions",   # rushing 2pt
     "41": "receptions",
     "42": "receiving_yards",
     "43": "receiving_tds",
+    "44": "two_point_conversions",   # receiving 2pt
     "58": "targets",
     "72": "fumbles_lost",
-    "26": "two_point_conversions",   # rushing 2pt
-    "44": "two_point_conversions",   # receiving 2pt
     "210": "games_played",
 }
 
-# ESPN position IDs
-POSITION_MAP = {2: "RB", 3: "WR"}
+# ESPN position IDs (defaultPositionId)
+POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE"}
 
 # ESPN slot IDs for filtering (different from position IDs)
-RB_SLOT_ID = 2
-WR_SLOT_ID = 4
+SLOT_IDS = [0, 2, 4, 6]  # QB=0, RB=2, WR=4, TE=6
 
 BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{year}/segments/0/leaguedefaults/3"
 ATHLETE_URL = "https://site.api.espn.com/apis/common/v3/sports/football/nfl/athletes/{athlete_id}"
@@ -44,7 +49,7 @@ def fetch_players(year: int = 2024, week: int = 0, limit: int = 100) -> list[Pla
 
     filters = {
         "players": {
-            "filterSlotIds": {"value": [RB_SLOT_ID, WR_SLOT_ID]},
+            "filterSlotIds": {"value": SLOT_IDS},
             "limit": limit,
             "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
             "filterStatus": {"value": ["FREEAGENT", "WAIVERS", "ONTEAM"]},
@@ -186,7 +191,7 @@ def fetch_players_with_history(year: int = 2025, week: int = 0, limit: int = 100
             params = {"view": "kona_player_info"}
             filters = {
                 "players": {
-                    "filterSlotIds": {"value": [RB_SLOT_ID, WR_SLOT_ID]},
+                    "filterSlotIds": {"value": SLOT_IDS},
                     "limit": 300,
                     "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
                     "filterStatus": {"value": ["FREEAGENT", "WAIVERS", "ONTEAM"]},

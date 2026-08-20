@@ -3,7 +3,12 @@ from dataclasses import dataclass, field
 
 @dataclass
 class PlayerStats:
-    """Raw stat line for a RB or WR."""
+    """Raw stat line for a QB, RB, WR, or TE."""
+    passing_yards: float = 0.0
+    passing_tds: int = 0
+    interceptions: int = 0
+    passing_attempts: int = 0
+    passing_completions: int = 0
     rushing_yards: float = 0.0
     rushing_tds: int = 0
     receptions: int = 0
@@ -20,7 +25,7 @@ class PlayerStats:
 class Player:
     name: str
     team: str
-    position: str  # "RB" or "WR"
+    position: str  # "QB", "RB", "WR", or "TE"
     espn_id: int = 0
     age: int | None = None
     stats: PlayerStats = field(default_factory=PlayerStats)
