@@ -1,5 +1,7 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 import threading
 from fantasy_football.player_db import PlayerDatabase
 
@@ -29,7 +31,7 @@ class FantasyFootballApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Fantasy Football db Engine")
-        self.root.geometry("1100x700")
+        self.root.geometry("1200x750")
         self.sort_reverse = {}
         self.cached_players = []
         self.db = PlayerDatabase()
@@ -62,9 +64,9 @@ class FantasyFootballApp:
         def on_complete(msg):
             self.root.after(0, lambda: self.status_var.set(msg))
             self.root.after(0, lambda: self.search_status_label.config(
-                text=f"({len(self.db.players)} players loaded)", foreground="green"))
+                text=f"({len(self.db.players)} players loaded)", bootstyle="success"))
             self.root.after(0, lambda: self.rankings_status_label.config(
-                text="Ready", foreground="green"))
+                text="Ready", bootstyle="success"))
 
         self.db.set_callbacks(on_progress=on_progress, on_complete=on_complete)
         thread = threading.Thread(target=self.db.load, daemon=True)
@@ -94,28 +96,29 @@ class FantasyFootballApp:
         frame = ttk.Frame(parent, padding=10)
         frame.pack(fill=tk.X)
 
-        ttk.Label(frame, text="Year:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(frame, text="Year:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
         self.year_var = tk.StringVar(value="2025")
         years = [str(y) for y in range(2025, 1998, -1)]
         ttk.Combobox(frame, textvariable=self.year_var, width=6,
-                     values=years, state="readonly").pack(side=tk.LEFT, padx=(0, 15))
+                     values=years, state="readonly", bootstyle="info").pack(side=tk.LEFT, padx=(0, 15))
 
-        ttk.Label(frame, text="Position:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(frame, text="Position:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
         self.pos_var = tk.StringVar(value="ALL")
         ttk.Combobox(frame, textvariable=self.pos_var, width=5,
-                     values=["ALL", "QB", "RB", "WR", "TE"], state="readonly").pack(side=tk.LEFT, padx=(0, 15))
+                     values=["ALL", "QB", "RB", "WR", "TE"], state="readonly", bootstyle="info").pack(side=tk.LEFT, padx=(0, 15))
 
-        ttk.Label(frame, text="Limit:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(frame, text="Limit:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
         self.limit_var = tk.StringVar(value="50")
-        ttk.Entry(frame, textvariable=self.limit_var, width=5).pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Entry(frame, textvariable=self.limit_var, width=5, bootstyle="info").pack(side=tk.LEFT, padx=(0, 15))
 
-        ttk.Button(frame, text="Show Rankings", command=self._on_fetch).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(frame, text="Show Rankings", command=self._on_fetch,
+                   bootstyle="success").pack(side=tk.LEFT, padx=(10, 0))
 
-        ttk.Button(frame, text="Refresh from ESPN",
-                   command=self._on_refresh).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(frame, text="Refresh from nflverse",
+                   command=self._on_refresh, bootstyle="warning-outline").pack(side=tk.LEFT, padx=(10, 0))
 
         self.rankings_status_label = ttk.Label(frame, text="(waiting for database...)",
-                                                foreground="gray")
+                                                bootstyle="secondary")
         self.rankings_status_label.pack(side=tk.LEFT, padx=(10, 0))
 
     def _build_table(self, parent):
@@ -146,8 +149,8 @@ class FantasyFootballApp:
         scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
         scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.tree.tag_configure("even", background="#f0f0f0")
-        self.tree.tag_configure("odd", background="#ffffff")
+        self.tree.tag_configure("even", background="#2a2d2e")
+        self.tree.tag_configure("odd", background="#222529")
 
     # ── Player Search Tab ─────────────────────────────────────────
 
@@ -156,18 +159,18 @@ class FantasyFootballApp:
         search_frame = ttk.Frame(self.search_tab, padding=10)
         search_frame.pack(fill=tk.X)
 
-        ttk.Label(search_frame, text="Search Player:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(search_frame, text="Search Player:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
         self.search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30)
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30, bootstyle="info")
         search_entry.pack(side=tk.LEFT, padx=(0, 10))
         search_entry.bind("<KeyRelease>", lambda e: self._on_search())
 
         self.search_status_label = ttk.Label(search_frame, text="(loading player database...)",
-                                              foreground="gray")
+                                              bootstyle="secondary")
         self.search_status_label.pack(side=tk.LEFT)
 
         # Split: player list on left, detail on right
-        paned = ttk.PanedWindow(self.search_tab, orient=tk.HORIZONTAL)
+        paned = ttk.Panedwindow(self.search_tab, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         # Left: matching players list
@@ -175,7 +178,9 @@ class FantasyFootballApp:
         paned.add(list_frame, weight=1)
 
         list_scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
-        self.match_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set, font=("Courier", 12))
+        self.match_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set, font=("Courier", 12),
+                                         bg="#2a2d2e", fg="#e0e0e0", selectbackground="#375a7f",
+                                         selectforeground="#ffffff", highlightthickness=0, bd=0)
         list_scroll.config(command=self.match_listbox.yview)
         self.match_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -186,7 +191,8 @@ class FantasyFootballApp:
         paned.add(detail_frame, weight=2)
 
         self.detail_text = tk.Text(detail_frame, wrap=tk.WORD, font=("Courier", 13),
-                                   state=tk.DISABLED, bg="#fafafa")
+                                   state=tk.DISABLED, bg="#222529", fg="#e0e0e0",
+                                   insertbackground="#e0e0e0", highlightthickness=0, bd=0)
         self.detail_text.pack(fill=tk.BOTH, expand=True)
 
     def _on_search(self):
@@ -312,7 +318,7 @@ class FantasyFootballApp:
                                       "This will re-fetch all data from nflverse.\nThis may take a moment.\n\nContinue?")
         if result:
             self.tree.delete(*self.tree.get_children())
-            self.rankings_status_label.config(text="(refreshing...)", foreground="orange")
+            self.rankings_status_label.config(text="(refreshing...)", bootstyle="warning")
             thread = threading.Thread(target=lambda: self._start_db_load(force_refresh=True), daemon=True)
             thread.start()
 
@@ -412,7 +418,7 @@ class FantasyFootballApp:
 
 
 def main():
-    root = tk.Tk()
+    root = ttk.Window(themename="darkly")
     FantasyFootballApp(root)
     root.mainloop()
 
