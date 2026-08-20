@@ -20,7 +20,8 @@ RANKING_COLUMNS = [
     ("avg_pts_3yr", "Car Pts", 75),
     ("seasons", "Szns", 50),
     ("gm_3yr", "Car GM", 60),
-    ("rel_score", "RelScr", 70),
+    ("raw_rel", "RelScr", 70),
+    ("rel_score", "AdjRel", 70),
     ("breakout", "BRK", 50),
     ("col_score", "ColScr", 65),
 ]
@@ -257,8 +258,10 @@ class FantasyFootballApp:
         lines.append(f"  Career Pts/Game:   {career_pg:.1f}" if career_pg else "  Career Pts/Game:   N/A")
         lines.append(f"  Total Games:       {p.total_games}")
         lines.append(f"  Total Games Missed:{p.total_games_missed}")
+        raw_rel = p.raw_reliability_score
         rel = p.reliability_score
-        lines.append(f"  Reliability Score: {rel:.1f}" if rel else "  Reliability Score: N/A")
+        lines.append(f"  Reliability Score: {raw_rel:.1f}" if raw_rel else "  Reliability Score: N/A")
+        lines.append(f"  Age-Adj RelScore:  {rel:.1f}" if rel else "  Age-Adj RelScore:  N/A")
         if p.breakout:
             lines.append(f"  Breakout:          YES")
         lines.append("")
@@ -355,6 +358,7 @@ class FantasyFootballApp:
 
         rows = []
         for i, (record, season) in enumerate(ranked, 1):
+            raw_rel = record.raw_reliability_score
             rel = record.reliability_score
             col_scr = record.college_dom_score
 
@@ -374,6 +378,7 @@ class FantasyFootballApp:
                 record.career_total_pts,
                 len(record.seasons),
                 record.total_games_missed,
+                round(raw_rel, 1) if raw_rel is not None else "--",
                 round(rel, 1) if rel is not None else "--",
                 "YES" if record.breakout else "",
                 round(col_scr, 1) if col_scr is not None else "--",

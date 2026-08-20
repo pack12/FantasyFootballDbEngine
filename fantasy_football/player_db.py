@@ -36,6 +36,9 @@ NFLVERSE_POSITIONS = {"QB", "RB", "WR", "TE"}
 _AGE_THRESHOLD = {"QB": 32, "WR": 29, "RB": 27, "TE": 29}
 _AGE_PENALTY_RATE = 0.03  # 3% per year beyond threshold
 
+# QB backup detection: seasons with fewer than this many pass attempts are considered backup seasons
+_QB_STARTER_MIN_ATTEMPTS = 200
+
 # nflverse column name → PlayerStats field name
 _NFLVERSE_STAT_MAP = {
     "passing_yards": "passing_yards",
@@ -120,14 +123,28 @@ class PlayerRecord:
             (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
         )
 
+    def _is_starter_season(self, season: 'SeasonRecord') -> bool:
+        """Check if a season counts as a starter season (filters out backup QB seasons)."""
+        if self.position == "QB" and season.stats.passing_attempts < _QB_STARTER_MIN_ATTEMPTS:
+            return False
+        return season.stats.games_played > 0
+
+    @property
+    def starter_seasons(self) -> list['SeasonRecord']:
+        """Seasons where the player was a starter (excludes backup QB seasons)."""
+        return [s for s in self.seasons if self._is_starter_season(s)]
+
     @property
     def total_games(self) -> int:
         return sum(s.stats.games_played for s in self.seasons)
 
     @property
     def total_games_missed(self) -> int:
-        total_possible = sum(games_in_season(s.year) for s in self.seasons)
-        return total_possible - self.total_games
+        """Games missed across starter seasons only (backup QB seasons excluded)."""
+        starter = self.starter_seasons
+        total_possible = sum(games_in_season(s.year) for s in starter)
+        total_played = sum(s.stats.games_played for s in starter)
+        return total_possible - total_played
 
     @property
     def career_pts_g(self) -> float | None:
@@ -141,39 +158,46 @@ class PlayerRecord:
         return round(sum(s.fantasy_points for s in self.seasons), 1)
 
     @property
-    def reliability_score(self) -> float | None:
-        if not self.seasons:
+    def raw_reliability_score(self) -> float | None:
+        """Recency-weighted Pts/G × availability (no age penalty)."""
+        starter = self.starter_seasons
+        if not starter:
             return None
         weight_table = [0.50, 0.30, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-        sorted_seasons = sorted(self.seasons, key=lambda s: s.year, reverse=True)
-        pts_g_list = [s.pts_per_game for s in sorted_seasons if s.stats.games_played > 0]
+        sorted_seasons = sorted(starter, key=lambda s: s.year, reverse=True)
+        pts_g_list = [s.pts_per_game for s in sorted_seasons]
         if not pts_g_list:
             return None
         weights = weight_table[:len(pts_g_list)]
         w_sum = sum(weights)
         recency_pts_g = sum(pg * w for pg, w in zip(pts_g_list, weights)) / w_sum
-        total_possible = sum(games_in_season(s.year) for s in self.seasons)
-        availability = self.total_games / total_possible if total_possible > 0 else 0
+        total_possible = sum(games_in_season(s.year) for s in starter)
+        total_games = sum(s.stats.games_played for s in starter)
+        availability = total_games / total_possible if total_possible > 0 else 0
+        return round(recency_pts_g * availability, 1)
 
-        # Age penalty: position-aware decline factor
+    @property
+    def reliability_score(self) -> float | None:
+        """Recency-weighted Pts/G × availability × age penalty."""
+        raw = self.raw_reliability_score
+        if raw is None:
+            return None
         age_factor = 1.0
         player_age = self.age
         if player_age is not None:
             threshold = _AGE_THRESHOLD.get(self.position, 29)
             years_over = max(0, player_age - threshold)
             age_factor = max(0.0, 1.0 - years_over * _AGE_PENALTY_RATE)
-
-        return round(recency_pts_g * availability * age_factor, 1)
+        return round(raw * age_factor, 1)
 
     @property
     def breakout(self) -> bool:
         """Latest season Pts/G is 40%+ above the previous season's Pts/G."""
-        sorted_seasons = sorted(self.seasons, key=lambda s: s.year)
-        playable = [s for s in sorted_seasons if s.stats.games_played > 0]
-        if len(playable) < 2:
+        sorted_seasons = sorted(self.starter_seasons, key=lambda s: s.year)
+        if len(sorted_seasons) < 2:
             return False
-        latest = playable[-1]
-        previous = playable[-2]
+        latest = sorted_seasons[-1]
+        previous = sorted_seasons[-2]
         return previous.pts_per_game > 0 and latest.pts_per_game >= previous.pts_per_game * 1.4
 
 
@@ -218,6 +242,7 @@ class PlayerDatabase:
                 self._load_births_from_csv()
                 if not any(r.birth_date for r in self.players.values()):
                     self._fetch_and_cache_births()
+                self._fetch_all_college_scores()
                 self.loaded = True
                 if self._on_complete:
                     year_range = f"{min(cached_years)}-{max(cached_years)}"
@@ -252,6 +277,9 @@ class PlayerDatabase:
 
         # Fetch birth dates from nflverse rosters
         self._fetch_and_cache_births()
+
+        # Batch-fetch college scores for young players
+        self._fetch_all_college_scores()
 
         # Save everything to CSV for next time
         if self._on_progress:
@@ -498,6 +526,8 @@ class PlayerDatabase:
                 record.espn_id = self._find_espn_id(record.name)
             if record.espn_id is not None:
                 self._fetch_college_for_player(record)
+                if record.college_dom_score is not None:
+                    self._save_college_csv()
 
     def _find_espn_id(self, name: str) -> int | None:
         """Search ESPN for a player by name to find their athlete ID."""
@@ -593,6 +623,18 @@ class PlayerDatabase:
 
         except requests.RequestException:
             pass
+
+    def _fetch_all_college_scores(self):
+        """Batch-fetch college scores for all players with < 3 NFL seasons."""
+        young = [r for r in self.players.values()
+                 if len(r.seasons) < 3 and r.college_dom_score is None and r.espn_id is not None]
+        if not young:
+            return
+        for i, record in enumerate(young, 1):
+            if self._on_progress:
+                self._on_progress(f"Fetching college stats... ({i}/{len(young)})")
+            self._fetch_college_for_player(record)
+        self._save_college_csv()
 
     # ── CSV persistence ────────────────────────────────────────
 
@@ -706,9 +748,9 @@ class PlayerDatabase:
         if self._on_progress:
             self._on_progress("Fetching birth dates from nflverse rosters...")
 
-        # gsis_id -> birth_date, espn_id -> birth_date (for ESPN-fallback players)
-        births_by_gsis: dict[str, str] = {}
-        births_by_espn: dict[str, str] = {}
+        # gsis_id -> (birth_date, espn_id), espn_id -> birth_date (for ESPN-fallback players)
+        roster_by_gsis: dict[str, tuple[str, str]] = {}  # gsis_id -> (birth_date, espn_id)
+        births_by_espn: dict[str, str] = {}  # espn_id -> birth_date
 
         # Download rosters for every year from 1999-2026 to cover all players
         for year in range(2026, 1998, -1):
@@ -723,11 +765,9 @@ class PlayerDatabase:
                     gsis_id = row.get("gsis_id", "")
                     espn_id = row.get("espn_id", "")
                     bd = row.get("birth_date", "")
-                    if not bd:
-                        continue
-                    if gsis_id and gsis_id not in births_by_gsis:
-                        births_by_gsis[gsis_id] = bd
-                    if espn_id and espn_id not in births_by_espn:
+                    if gsis_id and gsis_id not in roster_by_gsis and bd:
+                        roster_by_gsis[gsis_id] = (bd, espn_id)
+                    if espn_id and espn_id not in births_by_espn and bd:
                         births_by_espn[espn_id] = bd
             except Exception:
                 continue
@@ -735,32 +775,45 @@ class PlayerDatabase:
         # Apply to our players
         for pid, record in self.players.items():
             # Try matching by GSIS ID first
-            bd_str = births_by_gsis.get(pid)
-            # For ESPN-fallback players (pid like "espn-12345"), match by ESPN ID
-            if not bd_str and pid.startswith("espn-"):
-                espn_num = pid.removeprefix("espn-")
-                bd_str = births_by_espn.get(espn_num)
-            if bd_str:
+            roster_info = roster_by_gsis.get(pid)
+            if roster_info:
+                bd_str, espn_id_str = roster_info
                 try:
                     record.birth_date = date.fromisoformat(bd_str)
                 except ValueError:
                     pass
+                if espn_id_str and record.espn_id is None:
+                    try:
+                        record.espn_id = int(espn_id_str)
+                    except ValueError:
+                        pass
+            # For ESPN-fallback players (pid like "espn-12345"), match by ESPN ID
+            elif pid.startswith("espn-"):
+                espn_num = pid.removeprefix("espn-")
+                bd_str = births_by_espn.get(espn_num)
+                if bd_str:
+                    try:
+                        record.birth_date = date.fromisoformat(bd_str)
+                    except ValueError:
+                        pass
 
         # Cache to CSV
         self._save_births_csv()
 
     def _save_births_csv(self):
-        """Save birth dates to CSV cache."""
+        """Save birth dates and ESPN IDs to CSV cache."""
         os.makedirs(_DATA_DIR, exist_ok=True)
         with open(BIRTHS_CSV, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["player_id", "birth_date"])
+            writer.writerow(["player_id", "birth_date", "espn_id"])
             for record in self.players.values():
-                if record.birth_date:
-                    writer.writerow([record.player_id, record.birth_date.isoformat()])
+                if record.birth_date or record.espn_id:
+                    bd = record.birth_date.isoformat() if record.birth_date else ""
+                    espn = record.espn_id if record.espn_id else ""
+                    writer.writerow([record.player_id, bd, espn])
 
     def _load_births_from_csv(self):
-        """Load birth dates from CSV cache."""
+        """Load birth dates and ESPN IDs from CSV cache."""
         if not os.path.exists(BIRTHS_CSV):
             return
         try:
@@ -769,9 +822,18 @@ class PlayerDatabase:
                 for row in reader:
                     pid = row["player_id"]
                     record = self.players.get(pid)
-                    if record and row.get("birth_date"):
+                    if not record:
+                        continue
+                    bd = row.get("birth_date", "")
+                    if bd:
                         try:
-                            record.birth_date = date.fromisoformat(row["birth_date"])
+                            record.birth_date = date.fromisoformat(bd)
+                        except ValueError:
+                            pass
+                    espn = row.get("espn_id", "")
+                    if espn and record.espn_id is None:
+                        try:
+                            record.espn_id = int(espn)
                         except ValueError:
                             pass
         except Exception:
