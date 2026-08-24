@@ -23,9 +23,10 @@ def games_in_season(year: int) -> int:
 SEASONS_CSV = os.path.join(_DATA_DIR, "seasons.csv")
 COLLEGE_CSV = os.path.join(_DATA_DIR, "college.csv")
 BIRTHS_CSV = os.path.join(_DATA_DIR, "births.csv")
+ROOKIES_CSV = os.path.join(_DATA_DIR, "rookies.csv")
 META_FILE = os.path.join(_DATA_DIR, "meta.json")
 
-_CACHE_VERSION = 2  # bump when cache format changes
+_CACHE_VERSION = 3  # bump when cache format changes
 
 # nflverse data URLs
 NFLVERSE_URL = "https://github.com/nflverse/nflverse-data/releases/download/player_stats/player_stats_{year}.csv"
@@ -36,8 +37,24 @@ NFLVERSE_POSITIONS = {"QB", "RB", "WR", "TE"}
 _AGE_THRESHOLD = {"QB": 32, "WR": 29, "RB": 27, "TE": 29}
 _AGE_PENALTY_RATE = 0.03  # 3% per year beyond threshold
 
-# QB backup detection: seasons with fewer than this many pass attempts are considered backup seasons
-_QB_STARTER_MIN_ATTEMPTS = 200
+
+def _draft_round(pick: int) -> int:
+    """Convert overall draft pick number to round."""
+    if pick <= 32: return 1
+    if pick <= 64: return 2
+    if pick <= 100: return 3
+    if pick <= 135: return 4
+    if pick <= 176: return 5
+    if pick <= 220: return 6
+    return 7
+
+
+def _draft_tier(pick: int) -> int:
+    """Convert overall draft pick to tier for projection scaling."""
+    if pick <= 10: return 0   # top-10
+    if pick <= 32: return 1   # rest of round 1
+    if pick <= 64: return 2   # round 2
+    return 3                  # round 3+
 
 # nflverse column name → PlayerStats field name
 _NFLVERSE_STAT_MAP = {
@@ -102,6 +119,23 @@ class SeasonRecord:
 
 
 @dataclass
+class RookieProjection:
+    """Projected rookie stats based on college production and draft capital."""
+    player_id: str
+    name: str
+    position: str
+    team: str
+    espn_id: int | None = None
+    draft_number: int | None = None
+    draft_round: int = 0
+    college_dom_score: float | None = None
+    projected_pts_g: float | None = None
+    scale_factor: float = 0.0
+    college_final_year: str = ""
+    comp_name: str = ""  # historical comparable player
+
+
+@dataclass
 class PlayerRecord:
     """Full career record for a player."""
     player_id: str  # nflverse GSIS ID (e.g. "00-0033873")
@@ -110,6 +144,8 @@ class PlayerRecord:
     current_team: str
     espn_id: int | None = None  # for ESPN lookups (college)
     birth_date: date | None = None  # from nflverse rosters
+    draft_number: int | None = None
+    rookie_year: int | None = None
     seasons: list[SeasonRecord] = field(default_factory=list)
     college_dom_score: float | None = None
     college_final_year: str = ""
@@ -123,28 +159,14 @@ class PlayerRecord:
             (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
         )
 
-    def _is_starter_season(self, season: 'SeasonRecord') -> bool:
-        """Check if a season counts as a starter season (filters out backup QB seasons)."""
-        if self.position == "QB" and season.stats.passing_attempts < _QB_STARTER_MIN_ATTEMPTS:
-            return False
-        return season.stats.games_played > 0
-
-    @property
-    def starter_seasons(self) -> list['SeasonRecord']:
-        """Seasons where the player was a starter (excludes backup QB seasons)."""
-        return [s for s in self.seasons if self._is_starter_season(s)]
-
     @property
     def total_games(self) -> int:
         return sum(s.stats.games_played for s in self.seasons)
 
     @property
     def total_games_missed(self) -> int:
-        """Games missed across starter seasons only (backup QB seasons excluded)."""
-        starter = self.starter_seasons
-        total_possible = sum(games_in_season(s.year) for s in starter)
-        total_played = sum(s.stats.games_played for s in starter)
-        return total_possible - total_played
+        total_possible = sum(games_in_season(s.year) for s in self.seasons)
+        return total_possible - self.total_games
 
     @property
     def career_pts_g(self) -> float | None:
@@ -160,20 +182,18 @@ class PlayerRecord:
     @property
     def raw_reliability_score(self) -> float | None:
         """Recency-weighted Pts/G × availability (no age penalty)."""
-        starter = self.starter_seasons
-        if not starter:
+        if not self.seasons:
             return None
         weight_table = [0.50, 0.30, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-        sorted_seasons = sorted(starter, key=lambda s: s.year, reverse=True)
-        pts_g_list = [s.pts_per_game for s in sorted_seasons]
+        sorted_seasons = sorted(self.seasons, key=lambda s: s.year, reverse=True)
+        pts_g_list = [s.pts_per_game for s in sorted_seasons if s.stats.games_played > 0]
         if not pts_g_list:
             return None
         weights = weight_table[:len(pts_g_list)]
         w_sum = sum(weights)
         recency_pts_g = sum(pg * w for pg, w in zip(pts_g_list, weights)) / w_sum
-        total_possible = sum(games_in_season(s.year) for s in starter)
-        total_games = sum(s.stats.games_played for s in starter)
-        availability = total_games / total_possible if total_possible > 0 else 0
+        total_possible = sum(games_in_season(s.year) for s in self.seasons)
+        availability = self.total_games / total_possible if total_possible > 0 else 0
         return round(recency_pts_g * availability, 1)
 
     @property
@@ -193,11 +213,14 @@ class PlayerRecord:
     @property
     def breakout(self) -> bool:
         """Latest season Pts/G is 40%+ above the previous season's Pts/G."""
-        sorted_seasons = sorted(self.starter_seasons, key=lambda s: s.year)
-        if len(sorted_seasons) < 2:
+        playable = sorted(
+            [s for s in self.seasons if s.stats.games_played > 0],
+            key=lambda s: s.year,
+        )
+        if len(playable) < 2:
             return False
-        latest = sorted_seasons[-1]
-        previous = sorted_seasons[-2]
+        latest = playable[-1]
+        previous = playable[-2]
         return previous.pts_per_game > 0 and latest.pts_per_game >= previous.pts_per_game * 1.4
 
 
@@ -206,6 +229,7 @@ class PlayerDatabase:
 
     def __init__(self):
         self.players: dict[str, PlayerRecord] = {}  # player_id -> PlayerRecord
+        self.rookie_projections: list[RookieProjection] = []
         self.loaded = False
         self._on_progress = None
         self._on_complete = None
@@ -243,6 +267,9 @@ class PlayerDatabase:
                 if not any(r.birth_date for r in self.players.values()):
                     self._fetch_and_cache_births()
                 self._fetch_all_college_scores()
+                if not self._load_rookies_from_csv():
+                    self._build_rookie_scale_factors()
+                    self._load_2026_rookies()
                 self.loaded = True
                 if self._on_complete:
                     year_range = f"{min(cached_years)}-{max(cached_years)}"
@@ -280,6 +307,10 @@ class PlayerDatabase:
 
         # Batch-fetch college scores for young players
         self._fetch_all_college_scores()
+
+        # Build rookie projections
+        self._build_rookie_scale_factors()
+        self._load_2026_rookies()
 
         # Save everything to CSV for next time
         if self._on_progress:
@@ -456,7 +487,7 @@ class PlayerDatabase:
         filters = {
             "players": {
                 "filterSlotIds": {"value": ESPN_SLOT_IDS},
-                "limit": 300,
+                "limit": 1000,
                 "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
                 "filterStatus": {"value": ["FREEAGENT", "WAIVERS", "ONTEAM"]},
             }
@@ -636,6 +667,194 @@ class PlayerDatabase:
             self._fetch_college_for_player(record)
         self._save_college_csv()
 
+    # ── Rookie projections ─────────────────────────────────────
+
+    def _build_rookie_scale_factors(self) -> dict[tuple[str, int], float]:
+        """Build historical college-to-NFL scaling factors by position and draft tier."""
+        from statistics import median
+
+        # Collect ratios: (position, draft_tier) -> list of (nfl_pts_g / college_dom_score, player_name)
+        ratios: dict[tuple[str, int], list[tuple[float, str]]] = {}
+        pos_ratios: dict[str, list[float]] = {}
+
+        for record in self.players.values():
+            if record.college_dom_score is None or record.college_dom_score <= 0:
+                continue
+            if record.rookie_year is None or record.draft_number is None:
+                continue
+
+            # Find the rookie season
+            rookie_season = next((s for s in record.seasons if s.year == record.rookie_year), None)
+            if not rookie_season or rookie_season.stats.games_played < 4:
+                continue
+
+            ratio = rookie_season.pts_per_game / record.college_dom_score
+            tier = _draft_tier(record.draft_number)
+            key = (record.position, tier)
+            ratios.setdefault(key, []).append((ratio, record.name))
+            pos_ratios.setdefault(record.position, []).append(ratio)
+
+        # Compute median for each bucket, fallback to position median
+        scale_factors: dict[tuple[str, int], float] = {}
+        for pos in NFLVERSE_POSITIONS:
+            pos_median = median(pos_ratios[pos]) if pos in pos_ratios and len(pos_ratios[pos]) >= 3 else 0.5
+            for tier in range(4):
+                key = (pos, tier)
+                bucket = ratios.get(key, [])
+                if len(bucket) >= 5:
+                    scale_factors[key] = median([r for r, _ in bucket])
+                else:
+                    scale_factors[key] = pos_median
+
+        self._scale_factors = scale_factors
+        self._rookie_comp_data = ratios  # keep for finding comps
+        return scale_factors
+
+    def _load_2026_rookies(self):
+        """Load 2026 rookies from roster data and project their fantasy output."""
+        self.rookie_projections: list[RookieProjection] = []
+
+        # _roster_2026 is populated during _fetch_and_cache_births
+        roster_data = getattr(self, '_roster_2026', None)
+        if not roster_data:
+            return
+
+        # Filter to skill positions
+        rookies_raw = []
+        for info in roster_data:
+            # Need to get position from the roster row - re-download 2026 roster
+            pass
+
+        # Re-download 2026 roster to get full info including position
+        if self._on_progress:
+            self._on_progress("Loading 2026 rookies...")
+        try:
+            url = NFLVERSE_ROSTER_URL.format(year=2026)
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            reader = csv.DictReader(io.StringIO(resp.text))
+            for row in reader:
+                rookie_yr = row.get("rookie_year", "")
+                if rookie_yr != "2026":
+                    continue
+                pos = row.get("position", "")
+                if pos not in NFLVERSE_POSITIONS:
+                    continue
+                gsis_id = row.get("gsis_id", "")
+                espn_id_str = row.get("espn_id", "")
+                draft_num_str = row.get("draft_number", "")
+                espn_id = int(espn_id_str) if espn_id_str else None
+                draft_num = int(draft_num_str) if draft_num_str else None
+
+                rookies_raw.append({
+                    "gsis_id": gsis_id,
+                    "name": row.get("full_name", "Unknown"),
+                    "position": pos,
+                    "team": row.get("team", "FA"),
+                    "espn_id": espn_id,
+                    "draft_number": draft_num,
+                })
+        except Exception:
+            return
+
+        if not rookies_raw:
+            return
+
+        # Fetch college stats for each rookie
+        for i, rk in enumerate(rookies_raw, 1):
+            if self._on_progress:
+                self._on_progress(f"Fetching rookie college stats... ({i}/{len(rookies_raw)})")
+
+            proj = RookieProjection(
+                player_id=rk["gsis_id"],
+                name=rk["name"],
+                position=rk["position"],
+                team=rk["team"],
+                espn_id=rk["espn_id"],
+                draft_number=rk["draft_number"],
+                draft_round=_draft_round(rk["draft_number"]) if rk["draft_number"] else 0,
+            )
+
+            # Fetch college stats using a temporary PlayerRecord
+            if rk["espn_id"]:
+                temp = PlayerRecord(
+                    player_id=rk["gsis_id"], name=rk["name"],
+                    position=rk["position"], current_team=rk["team"],
+                    espn_id=rk["espn_id"],
+                )
+                self._fetch_college_for_player(temp)
+                proj.college_dom_score = temp.college_dom_score
+                proj.college_final_year = temp.college_final_year
+
+            # Project using scale factor
+            if proj.college_dom_score and proj.draft_number:
+                tier = _draft_tier(proj.draft_number)
+                key = (proj.position, tier)
+                scale = self._scale_factors.get(key, 0.5)
+                proj.scale_factor = round(scale, 2)
+                proj.projected_pts_g = round(proj.college_dom_score * scale, 1)
+
+                # Find best historical comp
+                comp_data = self._rookie_comp_data.get(key, [])
+                if comp_data:
+                    target_ratio = proj.scale_factor
+                    best_comp = min(comp_data, key=lambda x: abs(x[0] - target_ratio))
+                    proj.comp_name = best_comp[1]
+
+            self.rookie_projections.append(proj)
+
+        # Sort by projected pts/g
+        self.rookie_projections.sort(
+            key=lambda r: r.projected_pts_g if r.projected_pts_g else 0, reverse=True
+        )
+
+        self._save_rookies_csv()
+
+    def _save_rookies_csv(self):
+        """Save rookie projections to CSV cache."""
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        with open(ROOKIES_CSV, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["player_id", "name", "position", "team", "espn_id",
+                             "draft_number", "draft_round", "college_dom_score",
+                             "projected_pts_g", "scale_factor", "college_final_year", "comp_name"])
+            for r in self.rookie_projections:
+                writer.writerow([
+                    r.player_id, r.name, r.position, r.team,
+                    r.espn_id or "", r.draft_number or "", r.draft_round,
+                    r.college_dom_score or "", r.projected_pts_g or "",
+                    r.scale_factor, r.college_final_year, r.comp_name,
+                ])
+
+    def _load_rookies_from_csv(self) -> bool:
+        """Load rookie projections from CSV cache. Returns True if loaded."""
+        if not os.path.exists(ROOKIES_CSV):
+            return False
+        try:
+            self.rookie_projections = []
+            with open(ROOKIES_CSV, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    proj = RookieProjection(
+                        player_id=row["player_id"],
+                        name=row["name"],
+                        position=row["position"],
+                        team=row["team"],
+                        espn_id=int(row["espn_id"]) if row.get("espn_id") else None,
+                        draft_number=int(row["draft_number"]) if row.get("draft_number") else None,
+                        draft_round=int(row.get("draft_round", 0)),
+                        college_dom_score=float(row["college_dom_score"]) if row.get("college_dom_score") else None,
+                        projected_pts_g=float(row["projected_pts_g"]) if row.get("projected_pts_g") else None,
+                        scale_factor=float(row.get("scale_factor", 0)),
+                        college_final_year=row.get("college_final_year", ""),
+                        comp_name=row.get("comp_name", ""),
+                    )
+                    self.rookie_projections.append(proj)
+            return len(self.rookie_projections) > 0
+        except Exception:
+            self.rookie_projections = []
+            return False
+
     # ── CSV persistence ────────────────────────────────────────
 
     def _load_meta(self) -> dict:
@@ -748,9 +967,9 @@ class PlayerDatabase:
         if self._on_progress:
             self._on_progress("Fetching birth dates from nflverse rosters...")
 
-        # gsis_id -> (birth_date, espn_id), espn_id -> birth_date (for ESPN-fallback players)
-        roster_by_gsis: dict[str, tuple[str, str]] = {}  # gsis_id -> (birth_date, espn_id)
-        births_by_espn: dict[str, str] = {}  # espn_id -> birth_date
+        # gsis_id -> roster info, espn_id -> birth_date (for ESPN-fallback players)
+        roster_by_gsis: dict[str, dict] = {}  # gsis_id -> {birth_date, espn_id, draft_number, rookie_year}
+        births_by_espn: dict[str, str] = {}   # espn_id -> birth_date
 
         # Download rosters for every year from 1999-2026 to cover all players
         for year in range(2026, 1998, -1):
@@ -765,29 +984,57 @@ class PlayerDatabase:
                     gsis_id = row.get("gsis_id", "")
                     espn_id = row.get("espn_id", "")
                     bd = row.get("birth_date", "")
+                    draft_num = row.get("draft_number", "")
+                    rookie_yr = row.get("rookie_year", "")
                     if gsis_id and gsis_id not in roster_by_gsis and bd:
-                        roster_by_gsis[gsis_id] = (bd, espn_id)
+                        roster_by_gsis[gsis_id] = {
+                            "birth_date": bd,
+                            "espn_id": espn_id,
+                            "draft_number": draft_num,
+                            "rookie_year": rookie_yr,
+                        }
                     if espn_id and espn_id not in births_by_espn and bd:
                         births_by_espn[espn_id] = bd
             except Exception:
                 continue
 
+        # Also store raw roster data for 2026 rookies (needed for projections)
+        self._roster_2026 = [
+            info for gsis_id, info in roster_by_gsis.items()
+            if info.get("rookie_year") == "2026"
+        ]
+        # Attach gsis_id to each entry
+        for gsis_id, info in roster_by_gsis.items():
+            if info.get("rookie_year") == "2026":
+                info["gsis_id"] = gsis_id
+
         # Apply to our players
         for pid, record in self.players.items():
-            # Try matching by GSIS ID first
             roster_info = roster_by_gsis.get(pid)
             if roster_info:
-                bd_str, espn_id_str = roster_info
+                bd_str = roster_info["birth_date"]
                 try:
                     record.birth_date = date.fromisoformat(bd_str)
                 except ValueError:
                     pass
+                espn_id_str = roster_info["espn_id"]
                 if espn_id_str and record.espn_id is None:
                     try:
                         record.espn_id = int(espn_id_str)
                     except ValueError:
                         pass
-            # For ESPN-fallback players (pid like "espn-12345"), match by ESPN ID
+                dn = roster_info["draft_number"]
+                if dn and record.draft_number is None:
+                    try:
+                        record.draft_number = int(dn)
+                    except ValueError:
+                        pass
+                ry = roster_info["rookie_year"]
+                if ry and record.rookie_year is None:
+                    try:
+                        record.rookie_year = int(ry)
+                    except ValueError:
+                        pass
             elif pid.startswith("espn-"):
                 espn_num = pid.removeprefix("espn-")
                 bd_str = births_by_espn.get(espn_num)
@@ -801,19 +1048,21 @@ class PlayerDatabase:
         self._save_births_csv()
 
     def _save_births_csv(self):
-        """Save birth dates and ESPN IDs to CSV cache."""
+        """Save birth dates, ESPN IDs, draft info to CSV cache."""
         os.makedirs(_DATA_DIR, exist_ok=True)
         with open(BIRTHS_CSV, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["player_id", "birth_date", "espn_id"])
+            writer.writerow(["player_id", "birth_date", "espn_id", "draft_number", "rookie_year"])
             for record in self.players.values():
                 if record.birth_date or record.espn_id:
                     bd = record.birth_date.isoformat() if record.birth_date else ""
                     espn = record.espn_id if record.espn_id else ""
-                    writer.writerow([record.player_id, bd, espn])
+                    dn = record.draft_number if record.draft_number else ""
+                    ry = record.rookie_year if record.rookie_year else ""
+                    writer.writerow([record.player_id, bd, espn, dn, ry])
 
     def _load_births_from_csv(self):
-        """Load birth dates and ESPN IDs from CSV cache."""
+        """Load birth dates, ESPN IDs, draft info from CSV cache."""
         if not os.path.exists(BIRTHS_CSV):
             return
         try:
@@ -834,6 +1083,18 @@ class PlayerDatabase:
                     if espn and record.espn_id is None:
                         try:
                             record.espn_id = int(espn)
+                        except ValueError:
+                            pass
+                    dn = row.get("draft_number", "")
+                    if dn and record.draft_number is None:
+                        try:
+                            record.draft_number = int(dn)
+                        except ValueError:
+                            pass
+                    ry = row.get("rookie_year", "")
+                    if ry and record.rookie_year is None:
+                        try:
+                            record.rookie_year = int(ry)
                         except ValueError:
                             pass
         except Exception:

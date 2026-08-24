@@ -3,7 +3,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import threading
-from fantasy_football.player_db import PlayerDatabase, games_in_season, BIRTHS_CSV
+from fantasy_football.player_db import PlayerDatabase, games_in_season, BIRTHS_CSV, ROOKIES_CSV
 
 
 RANKING_COLUMNS = [
@@ -28,6 +28,21 @@ RANKING_COLUMNS = [
 
 TEXT_COLUMNS = {"name", "position", "team", "breakout"}
 
+ROOKIE_COLUMNS = [
+    ("rank", "Rank", 50),
+    ("name", "Player", 180),
+    ("position", "Pos", 50),
+    ("team", "Team", 55),
+    ("draft_rd", "Rd", 40),
+    ("draft_pick", "Pick", 50),
+    ("col_score", "ColScr", 70),
+    ("proj_pts_g", "Proj Pts/G", 90),
+    ("comp", "Comp Player", 180),
+    ("college_year", "College Stats", 300),
+]
+
+ROOKIE_TEXT_COLS = {"name", "position", "team", "comp", "college_year"}
+
 
 class FantasyFootballApp:
     def __init__(self, root):
@@ -48,7 +63,7 @@ class FantasyFootballApp:
         if force_refresh:
             import os
             from fantasy_football.player_db import SEASONS_CSV, COLLEGE_CSV, META_FILE, _DATA_DIR
-            for f in (SEASONS_CSV, COLLEGE_CSV, BIRTHS_CSV, META_FILE):
+            for f in (SEASONS_CSV, COLLEGE_CSV, BIRTHS_CSV, ROOKIES_CSV, META_FILE):
                 if os.path.exists(f):
                     os.remove(f)
             # Remove any leftover data dir contents
@@ -87,6 +102,16 @@ class FantasyFootballApp:
         self.search_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.search_tab, text="  Player Search  ")
         self._build_search_tab()
+
+        # Tab 3: Compare
+        self.compare_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.compare_tab, text="  Compare  ")
+        self._build_compare_tab()
+
+        # Tab 4: Rookies
+        self.rookies_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.rookies_tab, text="  2026 Rookies  ")
+        self._build_rookies_tab()
 
     # ── Rankings Tab ──────────────────────────────────────────────
 
@@ -306,6 +331,367 @@ class FantasyFootballApp:
         self.detail_text.delete("1.0", tk.END)
         self.detail_text.insert("1.0", "\n".join(lines))
         self.detail_text.config(state=tk.DISABLED)
+
+    # ── Compare Tab ────────────────────────────────────────────────
+
+    def _build_compare_tab(self):
+        # Controls
+        frame = ttk.Frame(self.compare_tab, padding=10)
+        frame.pack(fill=tk.X)
+
+        ttk.Label(frame, text="Position:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
+        self.cmp_pos_var = tk.StringVar(value="RB")
+        cmp_pos_combo = ttk.Combobox(frame, textvariable=self.cmp_pos_var, width=5,
+                     values=["QB", "RB", "WR", "TE"], state="readonly", bootstyle="info")
+        cmp_pos_combo.pack(side=tk.LEFT, padx=(0, 15))
+        cmp_pos_combo.bind("<<ComboboxSelected>>", lambda e: self._update_compare_players())
+
+        ttk.Label(frame, text="Player 1:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
+        self.cmp_p1_var = tk.StringVar()
+        self.cmp_p1_combo = ttk.Combobox(frame, textvariable=self.cmp_p1_var, width=25,
+                                          state="readonly", bootstyle="info")
+        self.cmp_p1_combo.pack(side=tk.LEFT, padx=(0, 15))
+
+        ttk.Label(frame, text="Player 2:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
+        self.cmp_p2_var = tk.StringVar()
+        self.cmp_p2_combo = ttk.Combobox(frame, textvariable=self.cmp_p2_var, width=25,
+                                          state="readonly", bootstyle="info")
+        self.cmp_p2_combo.pack(side=tk.LEFT, padx=(0, 15))
+
+        ttk.Button(frame, text="Compare", command=self._on_compare,
+                   bootstyle="success").pack(side=tk.LEFT, padx=(10, 0))
+
+        # Detail area
+        self.compare_text = tk.Text(self.compare_tab, wrap=tk.NONE, font=("Courier", 12),
+                                     state=tk.DISABLED, bg="#222529", fg="#e0e0e0",
+                                     insertbackground="#e0e0e0", highlightthickness=0, bd=0)
+        cmp_scroll_y = ttk.Scrollbar(self.compare_tab, orient=tk.VERTICAL, command=self.compare_text.yview)
+        cmp_scroll_x = ttk.Scrollbar(self.compare_tab, orient=tk.HORIZONTAL, command=self.compare_text.xview)
+        self.compare_text.config(yscrollcommand=cmp_scroll_y.set, xscrollcommand=cmp_scroll_x.set)
+        cmp_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        cmp_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+        self.compare_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # Store player list for combos
+        self._cmp_players = []
+
+    def _update_compare_players(self):
+        """Update player dropdowns based on selected position."""
+        if not self.db.loaded:
+            return
+        pos = self.cmp_pos_var.get()
+        players = [p for p in self.db.players.values() if p.position == pos]
+        players.sort(key=lambda p: p.career_total_pts, reverse=True)
+        self._cmp_players = players
+        names = [f"{p.name} ({p.current_team})" for p in players]
+        self.cmp_p1_combo["values"] = names
+        self.cmp_p2_combo["values"] = names
+        self.cmp_p1_var.set("")
+        self.cmp_p2_var.set("")
+
+    def _on_compare(self):
+        if not self.db.loaded:
+            return
+        if not self._cmp_players:
+            self._update_compare_players()
+
+        p1_idx = self.cmp_p1_combo.current()
+        p2_idx = self.cmp_p2_combo.current()
+        if p1_idx < 0 or p2_idx < 0:
+            return
+        if p1_idx == p2_idx:
+            return
+
+        p1 = self._cmp_players[p1_idx]
+        p2 = self._cmp_players[p2_idx]
+
+        lines = self._build_comparison(p1, p2)
+
+        self.compare_text.config(state=tk.NORMAL)
+        self.compare_text.delete("1.0", tk.END)
+        self.compare_text.insert("1.0", "\n".join(lines))
+        self.compare_text.config(state=tk.DISABLED)
+
+    def _build_comparison(self, p1, p2):
+        """Build side-by-side comparison text for two players."""
+        W = 30  # column width
+        lines = []
+
+        def row(label, v1, v2, highlight=True):
+            """Add a comparison row. Highlight the better value if numeric."""
+            s1 = str(v1) if v1 is not None else "N/A"
+            s2 = str(v2) if v2 is not None else "N/A"
+            marker1 = marker2 = " "
+            if highlight and v1 is not None and v2 is not None:
+                try:
+                    f1, f2 = float(v1), float(v2)
+                    if f1 > f2:
+                        marker1 = "+"
+                    elif f2 > f1:
+                        marker2 = "+"
+                except (ValueError, TypeError):
+                    pass
+            lines.append(f"  {label:<18} {marker1}{s1:>{W-1}}    {marker2}{s2:>{W-1}}")
+
+        def row_lower(label, v1, v2):
+            """Like row() but lower is better (e.g., games missed, fumbles)."""
+            s1 = str(v1) if v1 is not None else "N/A"
+            s2 = str(v2) if v2 is not None else "N/A"
+            marker1 = marker2 = " "
+            if v1 is not None and v2 is not None:
+                try:
+                    f1, f2 = float(v1), float(v2)
+                    if f1 < f2:
+                        marker1 = "+"
+                    elif f2 < f1:
+                        marker2 = "+"
+                except (ValueError, TypeError):
+                    pass
+            lines.append(f"  {label:<18} {marker1}{s1:>{W-1}}    {marker2}{s2:>{W-1}}")
+
+        # Header
+        lines.append(f"  {'':18} {p1.name:>{W}}    {p2.name:>{W}}")
+        lines.append(f"  {'=' * (18 + W * 2 + 6)}")
+        lines.append("")
+
+        # Basic info
+        lines.append(f"  {'── Profile ──':18} {'':>{W}}    {'':>{W}}")
+        row("Team", p1.current_team, p2.current_team, highlight=False)
+        row("Age", p1.age, p2.age, highlight=False)
+        row("Seasons", len(p1.seasons), len(p2.seasons))
+        lines.append("")
+
+        # Career stats
+        lines.append(f"  {'── Career ──':18} {'':>{W}}    {'':>{W}}")
+        row("Total Pts", f"{p1.career_total_pts:.1f}", f"{p2.career_total_pts:.1f}")
+        row("Career Pts/G", f"{p1.career_pts_g:.1f}" if p1.career_pts_g else None,
+            f"{p2.career_pts_g:.1f}" if p2.career_pts_g else None)
+        row("Total Games", p1.total_games, p2.total_games)
+        row_lower("Games Missed", p1.total_games_missed, p2.total_games_missed)
+        row("RelScr", f"{p1.raw_reliability_score:.1f}" if p1.raw_reliability_score else None,
+            f"{p2.raw_reliability_score:.1f}" if p2.raw_reliability_score else None)
+        row("AdjRel", f"{p1.reliability_score:.1f}" if p1.reliability_score else None,
+            f"{p2.reliability_score:.1f}" if p2.reliability_score else None)
+        lines.append("")
+
+        # Find overlapping years
+        p1_years = {s.year: s for s in p1.seasons}
+        p2_years = {s.year: s for s in p2.seasons}
+        all_years = sorted(set(p1_years.keys()) | set(p2_years.keys()), reverse=True)
+
+        # Season-by-season comparison
+        if p1.position == "QB":
+            lines.append(f"  {'── Season-by-Season ──'}")
+            lines.append(f"  {'Year':<6} {'':>{W}}    {'':>{W}}")
+            lines.append(f"  {'─' * (18 + W * 2 + 6)}")
+            for yr in all_years:
+                s1 = p1_years.get(yr)
+                s2 = p2_years.get(yr)
+                lines.append(f"  {yr}")
+                row("  GP",
+                    s1.stats.games_played if s1 else None,
+                    s2.stats.games_played if s2 else None)
+                row("  Pass Yds",
+                    f"{s1.stats.passing_yards:.0f}" if s1 else None,
+                    f"{s2.stats.passing_yards:.0f}" if s2 else None)
+                row("  Pass TD",
+                    s1.stats.passing_tds if s1 else None,
+                    s2.stats.passing_tds if s2 else None)
+                row_lower("  INT",
+                    s1.stats.interceptions if s1 else None,
+                    s2.stats.interceptions if s2 else None)
+                row("  Rush Yds",
+                    f"{s1.stats.rushing_yards:.0f}" if s1 else None,
+                    f"{s2.stats.rushing_yards:.0f}" if s2 else None)
+                row("  Pts",
+                    f"{s1.fantasy_points:.1f}" if s1 else None,
+                    f"{s2.fantasy_points:.1f}" if s2 else None)
+                row("  Pts/G",
+                    f"{s1.pts_per_game:.1f}" if s1 else None,
+                    f"{s2.pts_per_game:.1f}" if s2 else None)
+                lines.append("")
+        else:
+            lines.append(f"  {'── Season-by-Season ──'}")
+            lines.append(f"  {'─' * (18 + W * 2 + 6)}")
+            for yr in all_years:
+                s1 = p1_years.get(yr)
+                s2 = p2_years.get(yr)
+                lines.append(f"  {yr}")
+                row("  GP",
+                    s1.stats.games_played if s1 else None,
+                    s2.stats.games_played if s2 else None)
+                row("  Rec",
+                    s1.stats.receptions if s1 else None,
+                    s2.stats.receptions if s2 else None)
+                row("  Rec Yds",
+                    f"{s1.stats.receiving_yards:.0f}" if s1 else None,
+                    f"{s2.stats.receiving_yards:.0f}" if s2 else None)
+                row("  Rec TD",
+                    s1.stats.receiving_tds if s1 else None,
+                    s2.stats.receiving_tds if s2 else None)
+                row("  Rush Att",
+                    s1.stats.rushing_attempts if s1 else None,
+                    s2.stats.rushing_attempts if s2 else None)
+                row("  Rush Yds",
+                    f"{s1.stats.rushing_yards:.0f}" if s1 else None,
+                    f"{s2.stats.rushing_yards:.0f}" if s2 else None)
+                row("  Rush TD",
+                    s1.stats.rushing_tds if s1 else None,
+                    s2.stats.rushing_tds if s2 else None)
+                row("  Pts",
+                    f"{s1.fantasy_points:.1f}" if s1 else None,
+                    f"{s2.fantasy_points:.1f}" if s2 else None)
+                row("  Pts/G",
+                    f"{s1.pts_per_game:.1f}" if s1 else None,
+                    f"{s2.pts_per_game:.1f}" if s2 else None)
+                lines.append("")
+
+        return lines
+
+    # ── Rookies Tab ───────────────────────────────────────────────
+
+    def _build_rookies_tab(self):
+        # Controls
+        frame = ttk.Frame(self.rookies_tab, padding=10)
+        frame.pack(fill=tk.X)
+
+        ttk.Label(frame, text="Position:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
+        self.rookie_pos_var = tk.StringVar(value="ALL")
+        ttk.Combobox(frame, textvariable=self.rookie_pos_var, width=5,
+                     values=["ALL", "QB", "RB", "WR", "TE"], state="readonly",
+                     bootstyle="info").pack(side=tk.LEFT, padx=(0, 15))
+
+        ttk.Button(frame, text="Show Rookies", command=self._on_show_rookies,
+                   bootstyle="success").pack(side=tk.LEFT, padx=(10, 0))
+
+        self.compare_vets_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, text="Compare with Veterans", variable=self.compare_vets_var,
+                        bootstyle="info-round-toggle").pack(side=tk.LEFT, padx=(15, 0))
+
+        self.rookie_status_label = ttk.Label(frame, text="", bootstyle="secondary")
+        self.rookie_status_label.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Table
+        container = ttk.Frame(self.rookies_tab)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
+
+        col_ids = [c[0] for c in ROOKIE_COLUMNS]
+        scrollbar_y = ttk.Scrollbar(container, orient=tk.VERTICAL)
+        self.rookie_tree = ttk.Treeview(container, columns=col_ids, show="headings",
+                                         yscrollcommand=scrollbar_y.set)
+        scrollbar_y.config(command=self.rookie_tree.yview)
+
+        for col_id, heading, width in ROOKIE_COLUMNS:
+            self.rookie_tree.heading(col_id, text=heading,
+                                     command=lambda c=col_id: self._sort_rookie_column(c))
+            anchor = tk.W if col_id in ("name", "comp", "college_year") else tk.CENTER
+            self.rookie_tree.column(col_id, width=width, anchor=anchor, minwidth=40)
+
+        self.rookie_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.rookie_tree.tag_configure("rookie", background="#1a3a2a")
+        self.rookie_tree.tag_configure("vet_even", background="#2a2d2e")
+        self.rookie_tree.tag_configure("vet_odd", background="#222529")
+        self.rookie_sort_reverse = {}
+
+    def _on_show_rookies(self):
+        if not self.db.loaded:
+            self.rookie_status_label.config(text="Database still loading...")
+            return
+
+        pos = self.rookie_pos_var.get()
+        projections = self.db.rookie_projections
+
+        if not projections:
+            self.rookie_status_label.config(text="No 2026 rookie data available")
+            return
+
+        if pos != "ALL":
+            projections = [r for r in projections if r.position == pos]
+
+        # Build rows: rookies
+        rows = []
+        for r in projections:
+            rows.append({
+                "name": r.name,
+                "position": r.position,
+                "team": r.team,
+                "draft_rd": r.draft_round if r.draft_round else "--",
+                "draft_pick": r.draft_number if r.draft_number else "--",
+                "col_score": round(r.college_dom_score, 1) if r.college_dom_score else "--",
+                "proj_pts_g": r.projected_pts_g if r.projected_pts_g else "--",
+                "comp": r.comp_name,
+                "college_year": r.college_final_year,
+                "sort_key": r.projected_pts_g or 0,
+                "is_rookie": True,
+            })
+
+        # Optionally add veterans for comparison
+        if self.compare_vets_var.get():
+            for record in self.db.players.values():
+                if pos != "ALL" and record.position != pos:
+                    continue
+                rel = record.raw_reliability_score
+                if rel is None:
+                    continue
+                rows.append({
+                    "name": record.name,
+                    "position": record.position,
+                    "team": record.current_team,
+                    "draft_rd": "",
+                    "draft_pick": "",
+                    "col_score": "",
+                    "proj_pts_g": rel,
+                    "comp": f"{len(record.seasons)} seasons",
+                    "college_year": "",
+                    "sort_key": rel,
+                    "is_rookie": False,
+                })
+
+        # Sort by projected pts/g
+        rows.sort(key=lambda r: r["sort_key"], reverse=True)
+
+        # Populate tree
+        self.rookie_tree.delete(*self.rookie_tree.get_children())
+        vet_idx = 0
+        for i, row in enumerate(rows, 1):
+            if row["is_rookie"]:
+                tag = "rookie"
+            else:
+                tag = "vet_even" if vet_idx % 2 == 0 else "vet_odd"
+                vet_idx += 1
+
+            self.rookie_tree.insert("", tk.END, values=(
+                i, row["name"], row["position"], row["team"],
+                row["draft_rd"], row["draft_pick"], row["col_score"],
+                row["proj_pts_g"], row["comp"], row["college_year"],
+            ), tags=(tag,))
+
+        rookie_count = sum(1 for r in rows if r["is_rookie"])
+        vet_count = sum(1 for r in rows if not r["is_rookie"])
+        status = f"{rookie_count} rookies"
+        if vet_count:
+            status += f" + {vet_count} veterans (using RelScr for comparison)"
+        self.rookie_status_label.config(text=status)
+
+    def _sort_rookie_column(self, col):
+        items = [(self.rookie_tree.set(item, col), item) for item in self.rookie_tree.get_children("")]
+        is_numeric = col not in ROOKIE_TEXT_COLS
+        if is_numeric:
+            def sort_key(val):
+                try:
+                    return float(val[0])
+                except (ValueError, TypeError):
+                    return -1
+        else:
+            def sort_key(val):
+                return val[0].lower()
+        reverse = self.rookie_sort_reverse.get(col, False)
+        items.sort(key=sort_key, reverse=reverse)
+        self.rookie_sort_reverse[col] = not reverse
+        for idx, (_, item) in enumerate(items):
+            self.rookie_tree.move(item, "", idx)
 
     # ── Status Bar ────────────────────────────────────────────────
 

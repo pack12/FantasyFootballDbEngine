@@ -1,0 +1,228 @@
+player_id,name,position,team,espn_id,draft_number,draft_round,college_dom_score,projected_pts_g,scale_factor,college_final_year,comp_name
+00-0040891,Cole Payton,QB,PHI,4879250,178,6,24.8,13.7,0.55,"2025: 2719yds/16td/4int pass, 777yds/13td rush, 2rec/5yds/0td",Spencer Rattler
+00-0040867,Makai Lemon,WR,PHI,4870795,20,1,21.4,12.3,0.57,"2025: 24yds/1td/0int pass, 4yds/2td rush, 79rec/1156yds/11td",Ricky Pearsall
+00-0041092,Taylen Green,QB,CLE,4431325,182,6,22.2,12.2,0.55,"2025: 2714yds/19td/11int pass, 777yds/8td rush",Spencer Rattler
+00-0041511,Omar Cooper,WR,NYJ,4723820,30,1,19.5,11.2,0.57,"2025: 74yds/1td rush, 69rec/937yds/13td",Ricky Pearsall
+00-0041547,K.C. Concepcion,WR,CLE,4870653,24,1,17.0,9.8,0.57,"2024: 28yds/0td/0int pass, 75yds/1td rush, 61rec/919yds/9td",Ricky Pearsall
+00-0041117,Athan Kaliakmanis,QB,WAS,4432722,223,7,16.3,9.0,0.55,2025: 3124yds/20td/7int pass,Spencer Rattler
+00-0041056,Cade Klubnik,QB,NYJ,4685413,110,4,15.8,8.7,0.55,"2025: 2943yds/16td/6int pass, 94yds/4td rush, 1rec/19yds/0td",Spencer Rattler
+00-0041084,Tanner Koziol,TE,JAX,4917427,164,5,14.1,7.5,0.53,"2024: 6yds/0td rush, 74rec/727yds/6td",Jelani Woods
+00-0041123,Behren Morton,QB,NE,4431465,234,7,13.5,7.4,0.55,2025: 2780yds/22td/6int pass,Spencer Rattler
+00-0041483,Eli Stowers,TE,PHI,4431574,54,2,12.9,6.8,0.53,"2024: 17yds/1td/0int pass, 2yds/0td rush, 62rec/769yds/4td",Ben Sinnott
+00-0041032,Kenyon Sadiq,TE,NYJ,5083315,16,1,12.0,6.4,0.53,"2025: 6yds/0td rush, 51rec/560yds/8td",Brock Bowers
+00-0041133,Dallen Bentley,TE,DEN,5159802,256,7,11.2,5.9,0.53,2025: 48rec/620yds/6td,Jelani Woods
+00-0041077,Justin Joly,TE,DEN,4912052,152,5,10.9,5.8,0.53,"2022: 12yds/0td rush, 49rec/489yds/7td",Jelani Woods
+00-0041131,Carsen Ryan,TE,CLE,4685540,248,7,9.6,5.1,0.53,2025: 45rec/620yds/3td,Jelani Woods
+00-0041443,Skyler Bell,WR,BUF,4683153,125,4,23.6,5.0,0.21,2025: 101rec/1278yds/13td,K.J. Hill
+00-0040906,Garrett Nussmeier,QB,KC,4567747,249,7,8.9,4.9,0.55,2025: 1927yds/12td/5int pass,Spencer Rattler
+00-0041037,Denzel Boston,WR,CLE,4832800,39,2,17.5,4.7,0.27,"2025: 15yds/1td/0int pass, 2yds/1td rush, 62rec/881yds/11td",Adonai Mitchell
+00-0041013,Emmett Johnson,RB,KC,4832955,161,5,24.5,4.4,0.18,"2025: 1451yds/12td rush, 46rec/370yds/3td",Kerrith Whyte
+00-0041027,Jeremiyah Love,RB,AZ,4870808,3,1,24.5,4.4,0.18,"2025: 1372yds/18td rush, 27rec/280yds/3td",
+00-0041489,Germie Bernard,WR,PIT,4685261,47,2,16.5,4.4,0.27,"2025: 15yds/0td/0int pass, 101yds/2td rush, 64rec/862yds/7td",Adonai Mitchell
+00-0040887,Josh Cuevas,TE,BAL,4876132,173,5,7.9,4.2,0.53,"2025: 7yds/0td rush, 37rec/411yds/4td",Jelani Woods
+00-0041510,Max Klare,TE,LA,4833029,61,2,7.7,4.1,0.53,2025: 43rec/448yds/2td,Ben Sinnott
+00-0040876,Elijah Sarratt,WR,BAL,5088338,115,4,18.8,4.0,0.21,"2023: 1yds/1td rush, 65rec/830yds/15td",K.J. Hill
+00-0040879,Matthew Hibner,TE,BAL,4432260,133,4,7.6,4.0,0.53,2025: 31rec/436yds/4td,Jelani Woods
+00-0040901,Jaren Kanak,TE,TEN,4877034,225,7,7.5,4.0,0.53,2025: 44rec/533yds/0td,Jelani Woods
+00-0041438,Carnell Tate,WR,TEN,4871023,4,1,14.9,4.0,0.27,"2025: 16yds/0td rush, 51rec/875yds/9td",Rome Odunze
+00-0041087,Joe Royer,TE,CLE,4565859,170,5,7.3,3.9,0.53,2025: 29rec/416yds/4td,Jelani Woods
+00-0041398,Riley Nowakowski,TE,PIT,4693370,169,5,7.3,3.9,0.53,"2025: 2yds/2td rush, 32rec/387yds/2td",Jelani Woods
+00-0041029,Jordyn Tyson,WR,NO,4880281,8,1,14.3,3.8,0.27,"2025: 4yds/1td rush, 61rec/711yds/8td",Rome Odunze
+00-0040900,Anthony Smith,WR,DAL,4685110,218,6,17.1,3.6,0.21,"2024: 45yds/1td rush, 64rec/1053yds/7td",K.J. Hill
+00-0041067,Bryce Lance,WR,NO,4879276,136,5,17.1,3.6,0.21,"2025: 92yds/1td rush, 51rec/1079yds/8td",K.J. Hill
+00-0041035,De'Zhaun Stribling,WR,SF,4710714,33,2,13.2,3.5,0.27,2025: 55rec/811yds/6td,Adonai Mitchell
+00-0041047,Chris Brazzell,WR,CAR,5091739,83,3,16.7,3.5,0.21,2025: 62rec/1017yds/9td,K.J. Hill
+00-0041116,Jack Endries,TE,CIN,5085189,221,7,6.6,3.5,0.53,2025: 33rec/346yds/3td,Jelani Woods
+00-0041048,Ted Hurst,WR,TB,5220680,84,3,16.0,3.4,0.21,2025: 71rec/1004yds/6td,K.J. Hill
+00-0041096,Kaytron Allen,RB,WAS,4685246,187,6,18.9,3.4,0.18,"2023: 4yds/0td/0int pass, 1303yds/15td rush, 18rec/68yds/0td",Kerrith Whyte
+00-0041100,Josh Cameron,WR,JAX,4879194,191,6,16.2,3.4,0.21,"2023: 1yds/0td rush, 69rec/872yds/9td",K.J. Hill
+00-0041490,Eli Heidenreich,RB,PIT,5081508,230,7,19.2,3.4,0.18,"2025: 499yds/3td rush, 51rec/941yds/6td",Kerrith Whyte
+00-0041496,Jonah Coleman,RB,DEN,4702555,108,4,18.8,3.4,0.18,"2025: 758yds/15td rush, 31rec/354yds/2td",Kerrith Whyte
+00-0041395,Eli Raridon,TE,NE,4831959,95,3,6.2,3.3,0.53,2025: 32rec/482yds/0td,Jelani Woods
+00-0041525,Chris Bell,WR,MIA,4869961,94,3,15.7,3.3,0.21,"2024: 43yds/0td rush, 72rec/917yds/6td",K.J. Hill
+00-0040890,Cyrus Allen,WR,KC,4912218,176,5,15.3,3.2,0.21,"2025: 20yds/0td rush, 51rec/674yds/13td",K.J. Hill
+00-0041044,Zachariah Branch,WR,ATL,4870612,79,3,15.3,3.2,0.21,"2025: 7yds/0td rush, 81rec/811yds/6td",K.J. Hill
+00-0041467,Lewis Bond,WR,HOU,4683159,204,6,14.9,3.2,0.21,"2025: 3yds/0td rush, 88rec/993yds/1td",K.J. Hill
+00-0040888,Adam Randall,RB,BAL,4685526,174,5,17.0,3.0,0.18,"2025: 814yds/10td rush, 36rec/254yds/3td",Kerrith Whyte
+00-0041070,Reggie Virgil,WR,AZ,4869132,143,5,13.8,2.9,0.21,"2025: 35yds/2td rush, 57rec/705yds/6td",K.J. Hill
+00-0041523,Caleb Douglas,WR,MIA,4869645,75,3,13.9,2.9,0.21,2025: 54rec/846yds/7td,K.J. Hill
+00-0041106,C.J. Williams,WR,JAX,5085024,203,6,13.1,2.8,0.21,2025: 59rec/749yds/6td,K.J. Hill
+00-0041040,Antonio Williams,WR,WAS,5081432,71,3,12.3,2.6,0.21,"2025: 75yds/1td/0int pass, 78yds/1td rush, 55rec/604yds/4td",K.J. Hill
+00-0041104,Demond Claiborne,RB,MIN,4832846,198,6,14.8,2.6,0.18,"2025: 907yds/10td rush, 28rec/140yds/0td",Kerrith Whyte
+00-0041399,C.J. Daniels,WR,LA,4605951,197,6,12.3,2.6,0.21,"2022: 67yds/1td/0int pass, 50rec/557yds/7td",K.J. Hill
+00-0041503,Nate Boerkircher,TE,JAX,4686248,56,2,4.9,2.6,0.53,"2025: 5yds/1td rush, 19rec/198yds/3td",Ben Sinnott
+00-0040886,Nicholas Singleton,RB,TEN,4685555,165,5,14.2,2.5,0.18,"2025: 549yds/13td rush, 24rec/219yds/1td",Kerrith Whyte
+00-0040894,Malik Benson,WR,LV,5150247,195,6,11.6,2.5,0.21,2025: 43rec/719yds/6td,K.J. Hill
+00-0040895,Emmanuel Henderson,WR,SEA,4685381,199,6,11.8,2.5,0.21,"2025: 16yds/0td rush, 45rec/766yds/5td",K.J. Hill
+00-0041529,Kevin Coleman,WR,MIA,4685307,177,6,11.8,2.5,0.21,"2025: 76yds/0td rush, 66rec/732yds/1td",K.J. Hill
+00-0040870,Ja'Kobi Lane,WR,BAL,4870847,80,3,11.3,2.4,0.21,2025: 49rec/745yds/4td,K.J. Hill
+00-0041052,Kaelon Black,RB,SF,4696044,90,3,13.2,2.4,0.18,"2025: 1040yds/10td rush, 4rec/36yds/0td",Kerrith Whyte
+00-0041094,Bauer Sharp,TE,TB,4890373,185,6,4.5,2.4,0.53,2024: 24rec/252yds/2td,Jelani Woods
+00-0041125,Seth McGowan,RB,IND,4686468,237,7,13.5,2.4,0.18,"2025: 725yds/12td rush, 19rec/126yds/0td",Kerrith Whyte
+00-0041132,Deion Burks,WR,IND,4683151,254,7,11.0,2.3,0.21,2025: 57rec/620yds/4td,K.J. Hill
+00-0041472,Marlin Klein,TE,HOU,4695705,59,2,4.2,2.2,0.53,2025: 24rec/248yds/1td,Ben Sinnott
+00-0041512,Jadarian Price,RB,SEA,4685512,32,1,12.3,2.2,0.18,"2025: 674yds/11td rush, 6rec/87yds/2td",
+00-0041041,Oscar Delp,TE,NO,4702559,73,3,4.0,2.1,0.53,2025: 20rec/261yds/1td,Jelani Woods
+00-0041042,Malachi Fields,WR,NYG,4682648,74,3,10.0,2.1,0.21,"2024: 51yds/0td/0int pass, 36rec/630yds/5td",K.J. Hill
+00-0041051,Zavion Thomas,WR,CHI,4869748,89,3,10.1,2.1,0.21,"2025: 33yds/0td/0int pass, 99yds/1td rush, 41rec/488yds/4td",K.J. Hill
+00-0041446,Kendrick Law,WR,DET,4685441,168,5,10.0,2.1,0.21,"2025: 53yds/0td rush, 53rec/540yds/3td",K.J. Hill
+00-0041524,Will Kacmarek,TE,MIA,4880236,87,3,3.4,1.8,0.53,"2023: 5yds/0td rush, 15rec/168yds/2td",Jelani Woods
+00-0041129,Jam Miller,RB,NE,4685477,245,7,7.6,1.4,0.18,"2025: 504yds/3td rush, 19rec/109yds/0td",Kerrith Whyte
+00-0041069,Colbie Young,WR,CIN,5092508,140,5,5.2,1.1,0.21,2025: 26rec/358yds/1td,K.J. Hill
+00-0041397,Kaden Wetjen,WR,PIT,5081338,121,4,4.7,1.0,0.21,"2025: 79yds/2td rush, 20rec/151yds/1td",K.J. Hill
+00-0040785,Dohnte Meyers,WR,CIN,,,0,,,0.0,,
+00-0040788,Damien Alford,WR,NO,,,0,,,0.0,,
+00-0040853,Carson Towt,TE,IND,,,0,,,0.0,,
+00-0040878,Mike Washington,RB,LV,,122,4,,,0.0,,
+00-0040912,Hank Beatty,WR,TEN,4814930,,0,14.6,,0.0,"2025: 31yds/1td/0int pass, 46yds/1td rush, 70rec/864yds/3td",
+00-0040919,Tyren Montgomery,WR,TEN,5103197,,0,2.2,,0.0,2023: 12rec/171yds/0td,
+00-0040927,Dae'Quan Wright,TE,PHI,4838696,,0,10.2,,0.0,"2025: 2yds/0td rush, 39rec/635yds/5td",
+00-0040930,Camden Brown,WR,DAL,,,0,,,0.0,,
+00-0040934,Jordan Hudson,WR,DAL,4685409,,0,13.4,,0.0,"2025: 6yds/0td rush, 61rec/766yds/6td",
+00-0040937,Dominic Richardson,RB,DAL,4430689,,0,13.0,,0.0,"2025: 1065yds/5td rush, 20rec/130yds/0td",
+00-0040938,D.J. Rogers,TE,DAL,,,0,,,0.0,,
+00-0040939,Michael Trigg,TE,DAL,4594749,,0,12.0,,0.0,2025: 50rec/694yds/6td,
+00-0040942,Kyron Drones,QB,GB,,,0,,,0.0,,
+00-0040945,R.J. Maryland,TE,GB,4702913,,0,5.5,,0.0,2025: 27rec/322yds/2td,
+00-0040946,Jaden Nixon,RB,GB,,,0,,,0.0,,
+00-0040948,J.Michael Sturdivant,WR,GB,4635009,,0,6.6,,0.0,"2025: 1yds/0td rush, 27rec/406yds/3td",
+00-0040953,Jeff Caldwell,WR,KC,4885466,,0,9.6,,0.0,"2024: 25yds/1td rush, 32rec/478yds/6td",
+00-0040954,Omari Evans,WR,KC,,,0,,,0.0,,
+00-0040955,John Michael Gyllenborg,TE,KC,4708490,,0,4.0,,0.0,2025: 24rec/217yds/1td,
+00-0040959,Jaydn Ott,RB,KC,4685489,,0,0.8,,0.0,"2025: 68yds/0td rush, 2rec/10yds/0td",
+00-0040964,E.J. Smith,RB,KC,4430825,,0,3.9,,0.0,"2025: 205yds/4td rush, 4rec/18yds/0td",
+00-0040967,Jacob De Jesus,WR,KC,,,0,,,0.0,,
+00-0040970,Michael Briscoe,WR,MIN,,,0,,,0.0,,
+00-0040974,Lance Mason,TE,SEA,,,0,,,0.0,,
+00-0040977,Cortez Braham,WR,BAL,,,0,,,0.0,,
+00-0040981,Joe Fagnano,QB,BAL,,,0,,,0.0,,
+00-0040984,Dontae McMillan,RB,BAL,,,0,,,0.0,,
+00-0040985,Diego Pavia,QB,BAL,,,0,,,0.0,,
+00-0040986,Ty Pezza,WR,BAL,,,0,,,0.0,,
+00-0040989,Octavian Smith,WR,BAL,,,0,,,0.0,,
+00-0040991,Elijah Tau-Tolliver,RB,BAL,,,0,,,0.0,,
+00-0040996,Jacob Clark,QB,LV,,,0,,,0.0,,
+00-0040998,Roman Hemby,RB,LV,4688835,,0,14.4,,0.0,"2025: 1120yds/7td rush, 17rec/165yds/0td",
+00-0041004,Chase Roberts,WR,LV,4714388,,0,13.6,,0.0,"2022: 22yds/1td/0int pass, 21yds/0td rush, 54rec/802yds/6td",
+00-0041005,Corey Rucker,WR,LV,,,0,,,0.0,,
+00-0041011,E.J. Williams,WR,LV,,,0,,,0.0,,
+00-0041016,Patrick Gurd,TE,LV,,,0,,,0.0,,
+00-0041020,Xavier Loyd,WR,KC,,,0,,,0.0,,
+00-0041022,Jonathan Brady,WR,LV,,,0,,,0.0,,
+00-0041081,Max Bredeson,RB,MIN,4878695,159,5,0.2,,0.18,2025: 2rec/11yds/0td,Kerrith Whyte
+00-0041139,Damon Bankston,RB,NYG,,,0,,,0.0,,
+00-0041149,Haynes King,QB,CAR,4428993,,0,26.7,,0.0,"2025: 2951yds/14td/6int pass, 953yds/15td rush",
+00-0041152,Kobe Prentice,WR,CAR,4869965,,0,7.7,,0.0,2025: 26rec/380yds/6td,
+00-0041156,Mark Gronowski,QB,MIA,,,0,,,0.0,,
+00-0041157,Anthony Hankerson,RB,MIA,,,0,,,0.0,,
+00-0041158,Donaven McCulley,WR,MIA,4596347,,0,8.9,,0.0,"2025: 5yds/0td rush, 39rec/588yds/3td",
+00-0041161,Le'Veon Moss,RB,MIA,,,0,,,0.0,,
+00-0041165,Coleman Bennett,RB,CHI,4694074,,0,13.6,,0.0,"2025: 764yds/4td rush, 27rec/314yds/3td",
+00-0041168,Omari Kelly,WR,CHI,,,0,,,0.0,,
+00-0041170,Hayden Large,TE,CHI,,,0,,,0.0,,
+00-0041172,Miller Moss,QB,CHI,,,0,,,0.0,,
+00-0041176,Jaden Bradley,WR,WAS,,,0,,,0.0,,
+00-0041178,Robert Henry,RB,WAS,5151317,,0,15.4,,0.0,"2025: 1045yds/9td rush, 18rec/114yds/2td",
+00-0041179,Chris Hilton,WR,WAS,4431334,,0,1.7,,0.0,2025: 10rec/122yds/0td,
+00-0041180,Quentin Moore,TE,WAS,,,0,,,0.0,,
+00-0041185,Vinny Anthony,WR,ATL,4869816,,0,7.0,,0.0,"2025: 27yds/2td rush, 31rec/391yds/1td",
+00-0041187,Le'Meke Brockington,WR,ATL,,,0,,,0.0,,
+00-0041191,Cash Jones,RB,ATL,4881826,,0,3.6,,0.0,"2025: 15yds/0td rush, 20rec/195yds/1td",
+00-0041194,Jack Strand,QB,ATL,5344782,,0,,,0.0,,
+00-0041195,Jack Velling,TE,ATL,,,0,,,0.0,,
+00-0041199,Caullin Lacy,WR,NYJ,4430185,,0,11.1,,0.0,"2025: 2yds/1td/0int pass, 53yds/0td rush, 60rec/635yds/2td",
+00-0041200,Sam Scott,RB,NYJ,,,0,,,0.0,,
+00-0041201,D.T. Sheffield,WR,NYJ,,,0,,,0.0,,
+00-0041203,Joey Aguilar,QB,JAX,,,0,,,0.0,,
+00-0041205,Brady Boyd,WR,JAX,,,0,,,0.0,,
+00-0041206,Alex Bullock,WR,JAX,,,0,,,0.0,,
+00-0041207,Ethan Conner,TE,JAX,,,0,,,0.0,,
+00-0041215,Ben Patterson,WR,JAX,,,0,,,0.0,,
+00-0041216,Trebor Pena,WR,JAX,4575862,,0,9.5,,0.0,"2024: 73yds/0td rush, 49rec/552yds/2td",
+00-0041217,J'mari Taylor,RB,JAX,4713118,,0,20.7,,0.0,"2025: 1yds/1td/0int pass, 1062yds/14td rush, 43rec/253yds/1td",
+00-0041220,Michael Wortham,WR,JAX,,,0,,,0.0,,
+00-0041221,Jackson Acker,RB,BUF,,,0,,,0.0,,
+00-0041222,Gabriel Benyard,WR,BUF,,,0,,,0.0,,
+00-0041228,Sahmir Hagans,WR,IND,,,0,,,0.0,,
+00-0041229,E.J. Horton,WR,IND,,,0,,,0.0,,
+00-0041231,Lincoln Pare,RB,IND,,,0,,,0.0,,
+00-0041233,Raylen Sharpe,WR,IND,,,0,,,0.0,,
+00-0041237,Chase Curtis,TE,NYJ,,,0,,,0.0,,
+00-0041239,Chip Trayanum,RB,NYJ,4430893,,0,17.5,,0.0,"2025: 1015yds/12td rush, 21rec/212yds/2td",
+00-0041241,Kentrel Bullock,RB,CIN,,,0,,,0.0,,
+00-0041244,Jamal Haynes,RB,CIN,4611995,,0,10.9,,0.0,"2025: 531yds/5td rush, 33rec/257yds/0td",
+00-0041246,Josh Kattus,TE,CIN,,,0,,,0.0,,
+00-0041248,Noah Thomas,WR,CIN,4718457,,0,5.2,,0.0,"2024: 18yds/0td rush, 16rec/254yds/4td",
+00-0041251,Jalon Daniels,QB,TB,4596472,,0,18.4,,0.0,"2025: 2531yds/22td/7int pass, 404yds/4td rush",
+00-0041252,Kenny Fletcher,TE,TB,,,0,,,0.0,,
+00-0041257,Eric Rivers,WR,TB,4713277,,0,10.0,,0.0,"2025: 56yds/0td rush, 46rec/658yds/2td",
+00-0041263,Lake McRee,TE,PIT,,,0,,,0.0,,
+00-0041265,Squirrel White,WR,CHI,,,0,,,0.0,,
+00-0041266,Keelan Marion,WR,ATL,,,0,,,0.0,,
+00-0041267,Malik McClain,WR,NYJ,,,0,,,0.0,,
+00-0041272,Ja'Mori Maclin,WR,BUF,,,0,,,0.0,,
+00-0041273,Desmond Reid,RB,BUF,,,0,,,0.0,,
+00-0041277,Davon Booth,RB,CLE,5153650,,0,10.8,,0.0,"2025: 553yds/7td rush, 15rec/165yds/2td",
+00-0041281,T.J. Harden,RB,CLE,5086027,,0,12.9,,0.0,"2025: 787yds/9td rush, 19rec/99yds/1td",
+00-0041287,Kole Wilson,WR,CLE,,,0,,,0.0,,
+00-0041292,Kolbe Katsis,WR,DEN,,,0,,,0.0,,
+00-0041293,Dane Key,WR,DEN,4685424,,0,8.8,,0.0,2022: 39rec/452yds/5td,
+00-0041294,Joseph Manjack,WR,DEN,,,0,,,0.0,,
+00-0041299,Cam Ross,WR,DEN,,,0,,,0.0,,
+00-0041307,Josh Pitsenberger,RB,HOU,,,0,,,0.0,,
+00-0041308,Treyvhon Saunders,WR,HOU,,,0,,,0.0,,
+00-0041309,Daniel Sobkowicz,WR,HOU,,,0,,,0.0,,
+00-0041311,Jalen Walthall,WR,NYJ,,,0,,,0.0,,
+00-0041312,Noah Whittington,RB,HOU,4432631,,0,11.8,,0.0,"2025: 829yds/6td rush, 19rec/98yds/1td",
+00-0041314,Tanner Arkin,TE,NE,,,0,,,0.0,,
+00-0041317,Nick DeGennaro,WR,NE,,,0,,,0.0,,
+00-0041318,Kyle Dixon,WR,NE,5011554,,0,,,0.0,,
+00-0041319,Cameron Dorner,WR,NE,,,0,,,0.0,,
+00-0041322,Jimmy Kibble,WR,NE,,,0,,,0.0,,
+00-0041323,Myles Montgomery,RB,NE,4676889,,0,10.0,,0.0,"2025: 705yds/4td rush, 17rec/182yds/0td",
+00-0041326,C.J. Donaldson,RB,NO,5081999,,0,9.7,,0.0,"2025: 361yds/10td rush, 15rec/96yds/1td",
+00-0041327,Cody Hardy,TE,NO,,,0,,,0.0,,
+00-0041342,Dillon Bell,WR,MIN,4712579,,0,6.8,,0.0,"2025: 109yds/2td rush, 27rec/268yds/2td",
+00-0041350,Kejon Owens,RB,MIN,4431304,,0,17.2,,0.0,"2025: 1334yds/11td rush, 18rec/67yds/0td",
+00-0041352,Marcus Sanders,WR,MIN,,,0,,,0.0,,
+00-0041356,Luke Wysong,WR,MIN,,,0,,,0.0,,
+00-0041357,Khalil Dinkins,TE,SF,,,0,,,0.0,,
+00-0041359,Wesley Grimes,WR,SF,,,0,,,0.0,,
+00-0041361,Will Pauling,WR,SF,,,0,,,0.0,,
+00-0041366,Jameson Geers,TE,AZ,,,0,,,0.0,,
+00-0041368,Harrison Wallace,WR,AZ,4699354,,0,13.7,,0.0,"2025: 1yds/0td rush, 61rec/934yds/4td",
+00-0041373,Jerand Bradley,WR,LAC,,,0,,,0.0,,
+00-0041374,Sincere Brown,WR,LAC,,,0,,,0.0,,
+00-0041376,Gregory Desrosiers,RB,LAC,,,0,,,0.0,,
+00-0041380,Devonte Ross,WR,LAC,,,0,,,0.0,,
+00-0041384,Evan Svoboda,TE,LAC,,,0,,,0.0,,
+00-0041403,Rohan Jones,TE,LA,5083509,,0,7.8,,0.0,"2025: 10yds/1td rush, 19rec/519yds/4td",
+00-0041407,Kyron Hudson,WR,CHI,,,0,,,0.0,,
+00-0041414,Matthew Caldwell,QB,LA,,,0,,,0.0,,
+00-0041415,Dean Connors,RB,LA,5082269,,0,16.2,,0.0,"2025: 977yds/6td rush, 34rec/254yds/3td",
+00-0041422,Dan Villari,TE,LA,4608858,,0,7.6,,0.0,"2023: 177yds/1td/2int pass, 55yds/1td rush, 39rec/412yds/0td",
+00-0041433,Kadarius Calloway,RB,TB,,,0,,,0.0,,
+00-0041435,Dean Patterson,WR,TB,,,0,,,0.0,,
+00-0041436,D.J. Herman,RB,MIA,,,0,,,0.0,,
+00-0041451,Brock Rechsteiner,WR,NO,4877738,,0,8.6,,0.0,"2025: 17yds/1td rush, 36rec/383yds/5td",
+00-0041452,Johnny Pascuzzi,TE,LAC,,,0,,,0.0,,
+00-0041453,Luke Altmyer,QB,DET,4597679,,0,20.0,,0.0,"2025: 3007yds/22td/5int pass, 242yds/5td rush, 1rec/3yds/1td",
+00-0041457,Miles Kitselman,TE,DET,,,0,,,0.0,,
+00-0041474,Mante Morrow,WR,LAC,,,0,,,0.0,,
+00-0041475,Trayvon Rudolph,WR,MIN,,,0,,,0.0,,
+00-0041476,Rashad Rochelle,WR,SEA,,,0,,,0.0,,
+00-0041481,Terrill Davis,WR,MIN,,,0,,,0.0,,
+00-0041485,Miles Davis,RB,CAR,,,0,,,0.0,,
+00-0041486,Anderson Castle,RB,IND,,,0,,,0.0,,
+00-0041491,Aaron Anderson,WR,CLE,4691138,,0,5.6,,0.0,"2025: 2yds/0td rush, 33rec/398yds/0td",
+00-0041516,Romello Brinson,WR,DAL,,,0,,,0.0,,
+00-0041535,Louis Hansen,TE,HOU,,,0,,,0.0,,
+00-0041536,Kyre Duplessis,WR,DET,,,0,,,0.0,,
+00-0041542,Malick Meiga,WR,CAR,,,0,,,0.0,,
+00-0041562,Fernando Mendoza,QB,LV,,1,1,,,0.0,,
+00-0041568,Ty Simpson,QB,LA,,13,1,,,0.0,,
+00-0041561,Carson Beck,QB,AZ,,65,3,,,0.0,,
+00-0041558,Sam Roush,TE,CHI,,69,3,,,0.0,,
+00-0041565,Drew Allar,QB,PIT,,76,3,,,0.0,,
+00-0041550,Brenen Thompson,WR,LAC,,105,4,,,0.0,,
+00-0041579,Seydou Traore,TE,MIA,,180,6,,,0.0,,
