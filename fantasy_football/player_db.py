@@ -147,8 +147,28 @@ class PlayerRecord:
     draft_number: int | None = None
     rookie_year: int | None = None
     seasons: list[SeasonRecord] = field(default_factory=list)
+    # College stats (raw + computed)
+    college_games: int = 0
+    college_pass_yds: float = 0.0
+    college_pass_tds: float = 0.0
+    college_ints: float = 0.0
+    college_rush_yds: float = 0.0
+    college_rush_tds: float = 0.0
+    college_rec: float = 0.0
+    college_rec_yds: float = 0.0
+    college_rec_tds: float = 0.0
     college_dom_score: float | None = None
     college_final_year: str = ""
+    _college_attempted: bool = False  # True if we already tried fetching from ESPN
+
+    def compute_college_score(self):
+        """Calculate college_dom_score from raw college stats."""
+        games = self.college_games if self.college_games > 0 else ESTIMATED_COLLEGE_GAMES
+        fantasy_pts = (self.college_pass_yds * 0.04 + self.college_pass_tds * 4 + self.college_ints * -2 +
+                       self.college_rush_yds * 0.1 + self.college_rush_tds * 6 +
+                       self.college_rec * 1.0 + self.college_rec_yds * 0.1 + self.college_rec_tds * 6)
+        if fantasy_pts > 0:
+            self.college_dom_score = round(fantasy_pts / games, 1)
 
     @property
     def age(self) -> int | None:
@@ -195,6 +215,19 @@ class PlayerRecord:
         total_possible = sum(games_in_season(s.year) for s in self.seasons)
         availability = self.total_games / total_possible if total_possible > 0 else 0
         return round(recency_pts_g * availability, 1)
+
+    @property
+    def season_reliability_score(self) -> float | None:
+        """Most recent season: Pts/G × season availability (no age penalty)."""
+        if not self.seasons:
+            return None
+        latest = max(self.seasons, key=lambda s: s.year)
+        if latest.stats.games_played == 0:
+            return None
+        pts_g = latest.pts_per_game
+        possible = games_in_season(latest.year)
+        availability = latest.stats.games_played / possible if possible > 0 else 0
+        return round(pts_g * availability, 1)
 
     @property
     def reliability_score(self) -> float | None:
@@ -627,29 +660,35 @@ class PlayerDatabase:
                     final_year = str(seasons_list[-1].get("season", {}).get("year", ""))
                     break
 
-            rush_yds = final_rush.get("rushingYards", 0)
-            rush_tds = final_rush.get("rushingTouchdowns", 0)
-            rec = final_rec.get("receptions", 0)
-            rec_yds = final_rec.get("receivingYards", 0)
-            rec_tds = final_rec.get("receivingTouchdowns", 0)
-            pass_yds = final_pass.get("passingYards", final_pass.get("netPassingYards", 0))
-            pass_tds = final_pass.get("passingTouchdowns", 0)
-            ints = final_pass.get("interceptions", 0)
+            # Get actual games played from whichever category has it
+            games = 0
+            for stats_dict in [final_pass, final_rush, final_rec]:
+                gp = stats_dict.get("gamesPlayed", stats_dict.get("games", 0))
+                if gp > 0:
+                    games = max(games, int(gp))
 
-            fantasy_pts = (pass_yds * 0.04 + pass_tds * 4 + ints * -2 +
-                           rush_yds * 0.1 + rush_tds * 6 +
-                           rec * 1.0 + rec_yds * 0.1 + rec_tds * 6)
+            # Store raw stats on the record
+            record.college_games = games
+            record.college_pass_yds = final_pass.get("passingYards", final_pass.get("netPassingYards", 0))
+            record.college_pass_tds = final_pass.get("passingTouchdowns", 0)
+            record.college_ints = final_pass.get("interceptions", 0)
+            record.college_rush_yds = final_rush.get("rushingYards", 0)
+            record.college_rush_tds = final_rush.get("rushingTouchdowns", 0)
+            record.college_rec = final_rec.get("receptions", 0)
+            record.college_rec_yds = final_rec.get("receivingYards", 0)
+            record.college_rec_tds = final_rec.get("receivingTouchdowns", 0)
 
-            pts_per_game = fantasy_pts / ESTIMATED_COLLEGE_GAMES
-            record.college_dom_score = round(pts_per_game, 1)
+            # Compute score from raw stats
+            record.compute_college_score()
 
+            # Build summary string
             parts = []
-            if pass_yds > 0:
-                parts.append(f"{pass_yds:.0f}yds/{pass_tds:.0f}td/{ints:.0f}int pass")
-            if rush_yds > 0:
-                parts.append(f"{rush_yds:.0f}yds/{rush_tds:.0f}td rush")
-            if rec > 0:
-                parts.append(f"{rec:.0f}rec/{rec_yds:.0f}yds/{rec_tds:.0f}td")
+            if record.college_pass_yds > 0:
+                parts.append(f"{record.college_pass_yds:.0f}yds/{record.college_pass_tds:.0f}td/{record.college_ints:.0f}int pass")
+            if record.college_rush_yds > 0:
+                parts.append(f"{record.college_rush_yds:.0f}yds/{record.college_rush_tds:.0f}td rush")
+            if record.college_rec > 0:
+                parts.append(f"{record.college_rec:.0f}rec/{record.college_rec_yds:.0f}yds/{record.college_rec_tds:.0f}td")
             record.college_final_year = f"{final_year}: {', '.join(parts)}"
 
         except requests.RequestException:
@@ -658,13 +697,15 @@ class PlayerDatabase:
     def _fetch_all_college_scores(self):
         """Batch-fetch college scores for all players with < 3 NFL seasons."""
         young = [r for r in self.players.values()
-                 if len(r.seasons) < 3 and r.college_dom_score is None and r.espn_id is not None]
+                 if len(r.seasons) < 3 and r.college_dom_score is None
+                 and r.espn_id is not None and not r._college_attempted]
         if not young:
             return
         for i, record in enumerate(young, 1):
             if self._on_progress:
                 self._on_progress(f"Fetching college stats... ({i}/{len(young)})")
             self._fetch_college_for_player(record)
+            record._college_attempted = True
         self._save_college_csv()
 
     # ── Rookie projections ─────────────────────────────────────
@@ -957,8 +998,25 @@ class PlayerDatabase:
                     pid = row["player_id"]
                     record = self.players.get(pid)
                     if record:
-                        record.college_dom_score = float(row["college_dom_score"])
+                        record._college_attempted = True
                         record.college_final_year = row.get("college_final_year", "")
+                        # New format with raw stats
+                        if "college_games" in row:
+                            record.college_games = int(float(row.get("college_games", 0) or 0))
+                            record.college_pass_yds = float(row.get("college_pass_yds", 0) or 0)
+                            record.college_pass_tds = float(row.get("college_pass_tds", 0) or 0)
+                            record.college_ints = float(row.get("college_ints", 0) or 0)
+                            record.college_rush_yds = float(row.get("college_rush_yds", 0) or 0)
+                            record.college_rush_tds = float(row.get("college_rush_tds", 0) or 0)
+                            record.college_rec = float(row.get("college_rec", 0) or 0)
+                            record.college_rec_yds = float(row.get("college_rec_yds", 0) or 0)
+                            record.college_rec_tds = float(row.get("college_rec_tds", 0) or 0)
+                            record.compute_college_score()
+                        else:
+                            # Old format fallback: just the pre-computed score
+                            score = row.get("college_dom_score", "")
+                            if score:
+                                record.college_dom_score = float(score)
         except Exception:
             pass
 
@@ -1101,15 +1159,26 @@ class PlayerDatabase:
             pass
 
     def _save_college_csv(self):
-        """Save college data for all players who have it."""
+        """Save college data (raw stats) for all players who have it or were attempted."""
         os.makedirs(_DATA_DIR, exist_ok=True)
+        cols = ["player_id", "name", "college_dom_score", "college_final_year",
+                "college_games", "college_pass_yds", "college_pass_tds",
+                "college_ints", "college_rush_yds", "college_rush_tds",
+                "college_rec", "college_rec_yds", "college_rec_tds"]
         with open(COLLEGE_CSV, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["player_id", "college_dom_score", "college_final_year"])
+            writer.writerow(cols)
             for record in self.players.values():
-                if record.college_dom_score is not None:
-                    writer.writerow([record.player_id, record.college_dom_score,
-                                     record.college_final_year])
+                if record.college_dom_score is not None or record._college_attempted:
+                    writer.writerow([
+                        record.player_id, record.name,
+                        record.college_dom_score or "",
+                        record.college_final_year, record.college_games,
+                        record.college_pass_yds, record.college_pass_tds,
+                        record.college_ints, record.college_rush_yds,
+                        record.college_rush_tds, record.college_rec,
+                        record.college_rec_yds, record.college_rec_tds,
+                    ])
 
     # ── Public API ─────────────────────────────────────────────
 

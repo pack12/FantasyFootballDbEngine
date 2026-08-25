@@ -18,8 +18,10 @@ RANKING_COLUMNS = [
     ("pts_g", "Pts/G", 65),
     ("avg_pts_g_3yr", "Car Pts/G", 80),
     ("avg_pts_3yr", "Car Pts", 75),
+    ("season_num", "Yr#", 45),
     ("seasons", "Szns", 50),
     ("gm_3yr", "Car GM", 60),
+    ("szn_rel", "SznRel", 70),
     ("raw_rel", "RelScr", 70),
     ("rel_score", "AdjRel", 70),
     ("breakout", "BRK", 50),
@@ -84,6 +86,7 @@ class FantasyFootballApp:
                 text=f"({len(self.db.players)} players loaded)", bootstyle="success"))
             self.root.after(0, lambda: self.rankings_status_label.config(
                 text="Ready", bootstyle="success"))
+            self.root.after(0, self._update_compare_players)
 
         self.db.set_callbacks(on_progress=on_progress, on_complete=on_complete)
         thread = threading.Thread(target=self.db.load, daemon=True)
@@ -335,31 +338,61 @@ class FantasyFootballApp:
     # ── Compare Tab ────────────────────────────────────────────────
 
     def _build_compare_tab(self):
-        # Controls
-        frame = ttk.Frame(self.compare_tab, padding=10)
-        frame.pack(fill=tk.X)
+        # Controls row 1: position
+        row1 = ttk.Frame(self.compare_tab, padding=(10, 10, 10, 0))
+        row1.pack(fill=tk.X)
 
-        ttk.Label(frame, text="Position:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(row1, text="Position:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
         self.cmp_pos_var = tk.StringVar(value="RB")
-        cmp_pos_combo = ttk.Combobox(frame, textvariable=self.cmp_pos_var, width=5,
+        cmp_pos_combo = ttk.Combobox(row1, textvariable=self.cmp_pos_var, width=5,
                      values=["QB", "RB", "WR", "TE"], state="readonly", bootstyle="info")
         cmp_pos_combo.pack(side=tk.LEFT, padx=(0, 15))
         cmp_pos_combo.bind("<<ComboboxSelected>>", lambda e: self._update_compare_players())
 
-        ttk.Label(frame, text="Player 1:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
-        self.cmp_p1_var = tk.StringVar()
-        self.cmp_p1_combo = ttk.Combobox(frame, textvariable=self.cmp_p1_var, width=25,
-                                          state="readonly", bootstyle="info")
-        self.cmp_p1_combo.pack(side=tk.LEFT, padx=(0, 15))
-
-        ttk.Label(frame, text="Player 2:", bootstyle="light").pack(side=tk.LEFT, padx=(0, 5))
-        self.cmp_p2_var = tk.StringVar()
-        self.cmp_p2_combo = ttk.Combobox(frame, textvariable=self.cmp_p2_var, width=25,
-                                          state="readonly", bootstyle="info")
-        self.cmp_p2_combo.pack(side=tk.LEFT, padx=(0, 15))
-
-        ttk.Button(frame, text="Compare", command=self._on_compare,
+        ttk.Button(row1, text="Compare", command=self._on_compare,
                    bootstyle="success").pack(side=tk.LEFT, padx=(10, 0))
+
+        # Controls row 2: player search boxes side by side
+        row2 = ttk.Frame(self.compare_tab, padding=(10, 5, 10, 5))
+        row2.pack(fill=tk.X)
+
+        # Player 1 search
+        p1_frame = ttk.LabelFrame(row2, text="Player 1", padding=5, bootstyle="info")
+        p1_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+
+        self.cmp_p1_search_var = tk.StringVar()
+        p1_entry = ttk.Entry(p1_frame, textvariable=self.cmp_p1_search_var, bootstyle="info")
+        p1_entry.pack(fill=tk.X)
+        p1_entry.bind("<KeyRelease>", lambda e: self._filter_compare_list(1))
+
+        self.cmp_p1_listbox = tk.Listbox(p1_frame, height=6, bg="#222529", fg="#e0e0e0",
+                                          selectbackground="#375a7f", highlightthickness=0, bd=1,
+                                          exportselection=False)
+        self.cmp_p1_listbox.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        self.cmp_p1_listbox.bind("<<ListboxSelect>>", lambda e: self._on_cmp_player_select(1))
+
+        self.cmp_p1_selected_var = tk.StringVar(value="No player selected")
+        ttk.Label(p1_frame, textvariable=self.cmp_p1_selected_var,
+                  bootstyle="success", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
+
+        # Player 2 search
+        p2_frame = ttk.LabelFrame(row2, text="Player 2", padding=5, bootstyle="info")
+        p2_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+
+        self.cmp_p2_search_var = tk.StringVar()
+        p2_entry = ttk.Entry(p2_frame, textvariable=self.cmp_p2_search_var, bootstyle="info")
+        p2_entry.pack(fill=tk.X)
+        p2_entry.bind("<KeyRelease>", lambda e: self._filter_compare_list(2))
+
+        self.cmp_p2_listbox = tk.Listbox(p2_frame, height=6, bg="#222529", fg="#e0e0e0",
+                                          selectbackground="#375a7f", highlightthickness=0, bd=1,
+                                          exportselection=False)
+        self.cmp_p2_listbox.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        self.cmp_p2_listbox.bind("<<ListboxSelect>>", lambda e: self._on_cmp_player_select(2))
+
+        self.cmp_p2_selected_var = tk.StringVar(value="No player selected")
+        ttk.Label(p2_frame, textvariable=self.cmp_p2_selected_var,
+                  bootstyle="success", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W, pady=(3, 0))
 
         # Detail area
         self.compare_text = tk.Text(self.compare_tab, wrap=tk.NONE, font=("Courier", 12),
@@ -372,22 +405,64 @@ class FantasyFootballApp:
         cmp_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.compare_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        # Store player list for combos
+        # Store player lists and locked-in selections
         self._cmp_players = []
+        self._cmp_filtered_1 = []
+        self._cmp_filtered_2 = []
+        self._cmp_selected_1 = None  # PlayerRecord
+        self._cmp_selected_2 = None
 
     def _update_compare_players(self):
-        """Update player dropdowns based on selected position."""
+        """Update player lists based on selected position."""
         if not self.db.loaded:
             return
         pos = self.cmp_pos_var.get()
         players = [p for p in self.db.players.values() if p.position == pos]
         players.sort(key=lambda p: p.career_total_pts, reverse=True)
         self._cmp_players = players
-        names = [f"{p.name} ({p.current_team})" for p in players]
-        self.cmp_p1_combo["values"] = names
-        self.cmp_p2_combo["values"] = names
-        self.cmp_p1_var.set("")
-        self.cmp_p2_var.set("")
+        self.cmp_p1_search_var.set("")
+        self.cmp_p2_search_var.set("")
+        self._filter_compare_list(1)
+        self._filter_compare_list(2)
+
+    def _filter_compare_list(self, player_num: int):
+        """Filter the player listbox as user types."""
+        if player_num == 1:
+            query = self.cmp_p1_search_var.get().strip().lower()
+            listbox = self.cmp_p1_listbox
+        else:
+            query = self.cmp_p2_search_var.get().strip().lower()
+            listbox = self.cmp_p2_listbox
+
+        listbox.delete(0, tk.END)
+
+        if not query:
+            filtered = self._cmp_players[:]
+        else:
+            filtered = [p for p in self._cmp_players if query in p.name.lower()]
+
+        if player_num == 1:
+            self._cmp_filtered_1 = filtered
+        else:
+            self._cmp_filtered_2 = filtered
+
+        for p in filtered:
+            listbox.insert(tk.END, f"{p.name} ({p.current_team})")
+
+    def _on_cmp_player_select(self, player_num: int):
+        """Lock in the selected player and show their name."""
+        if player_num == 1:
+            sel = self.cmp_p1_listbox.curselection()
+            if sel and sel[0] < len(self._cmp_filtered_1):
+                player = self._cmp_filtered_1[sel[0]]
+                self._cmp_selected_1 = player
+                self.cmp_p1_selected_var.set(f">> {player.name} ({player.current_team})")
+        else:
+            sel = self.cmp_p2_listbox.curselection()
+            if sel and sel[0] < len(self._cmp_filtered_2):
+                player = self._cmp_filtered_2[sel[0]]
+                self._cmp_selected_2 = player
+                self.cmp_p2_selected_var.set(f">> {player.name} ({player.current_team})")
 
     def _on_compare(self):
         if not self.db.loaded:
@@ -395,15 +470,12 @@ class FantasyFootballApp:
         if not self._cmp_players:
             self._update_compare_players()
 
-        p1_idx = self.cmp_p1_combo.current()
-        p2_idx = self.cmp_p2_combo.current()
-        if p1_idx < 0 or p2_idx < 0:
+        p1 = self._cmp_selected_1
+        p2 = self._cmp_selected_2
+        if not p1 or not p2:
             return
-        if p1_idx == p2_idx:
+        if p1.player_id == p2.player_id:
             return
-
-        p1 = self._cmp_players[p1_idx]
-        p2 = self._cmp_players[p2_idx]
 
         lines = self._build_comparison(p1, p2)
 
@@ -744,11 +816,15 @@ class FantasyFootballApp:
 
         rows = []
         for i, (record, season) in enumerate(ranked, 1):
+            szn_rel = record.season_reliability_score
             raw_rel = record.raw_reliability_score
             rel = record.reliability_score
             col_scr = record.college_dom_score
 
             age = record.age if record.age is not None else "--"
+
+            sorted_yrs = sorted(s.year for s in record.seasons)
+            season_num = sorted_yrs.index(year) + 1 if year in sorted_yrs else "--"
 
             rows.append((
                 i,
@@ -762,8 +838,10 @@ class FantasyFootballApp:
                 season.pts_per_game,
                 record.career_pts_g if record.career_pts_g else "--",
                 record.career_total_pts,
+                season_num,
                 len(record.seasons),
                 record.total_games_missed,
+                round(szn_rel, 1) if szn_rel is not None else "--",
                 round(raw_rel, 1) if raw_rel is not None else "--",
                 round(rel, 1) if rel is not None else "--",
                 "YES" if record.breakout else "",
