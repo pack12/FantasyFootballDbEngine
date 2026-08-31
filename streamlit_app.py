@@ -32,10 +32,12 @@ def _load_draft_sheet():
         df = conn.read(worksheet="Draftboard", ttl=5)
         if df is not None and not df.empty:
             df = df.dropna(how="all")
+            if "rank" not in df.columns:
+                df["rank"] = 0
             return df
     except Exception as e:
         st.error(f"Failed to load from Google Sheets: {e}")
-    return pd.DataFrame(columns=["user", "player_id", "name", "position", "team", "tier", "drafted"])
+    return pd.DataFrame(columns=["user", "player_id", "name", "position", "team", "tier", "drafted", "rank"])
 
 
 def _save_draft_sheet(df: pd.DataFrame):
@@ -529,6 +531,20 @@ if ENABLE_DRAFT_BOARD:
 
             # Load data from Google Sheets
             all_draft_data = _load_draft_sheet()
+            all_draft_data["rank"] = all_draft_data["rank"].fillna(0).astype(int)
+
+            # Auto-assign ranks to players that have rank 0
+            needs_ranks = False
+            for user_id in all_draft_data["user"].unique():
+                for pos in ["QB", "RB", "WR", "TE"]:
+                    mask = (all_draft_data["user"] == user_id) & (all_draft_data["position"] == pos)
+                    subset = all_draft_data.loc[mask]
+                    if not subset.empty and (subset["rank"] == 0).all():
+                        all_draft_data.loc[mask, "rank"] = range(1, len(subset) + 1)
+                        needs_ranks = True
+            if needs_ranks:
+                _save_draft_sheet(all_draft_data)
+
             user_draft = all_draft_data[all_draft_data["user"] == draft_user].copy()
 
             # Collect all drafted player_ids across ALL users
@@ -566,6 +582,12 @@ if ENABLE_DRAFT_BOARD:
                         if already_on_board:
                             st.info("Already on your board")
                         elif st.button("Add to Board", type="primary", key="draft_add_btn"):
+                            # Assign next rank within this user+position
+                            existing = all_draft_data[
+                                (all_draft_data["user"] == draft_user) &
+                                (all_draft_data["position"] == selected_player.position)
+                            ]
+                            next_rank = int(existing["rank"].max()) + 1 if not existing.empty and existing["rank"].max() > 0 else 1
                             new_row = pd.DataFrame([{
                                 "user": draft_user,
                                 "player_id": selected_player.player_id,
@@ -574,6 +596,7 @@ if ENABLE_DRAFT_BOARD:
                                 "team": selected_player.current_team,
                                 "tier": tier,
                                 "drafted": False,
+                                "rank": next_rank,
                             }])
                             all_draft_data = pd.concat([all_draft_data, new_row], ignore_index=True)
                             _save_draft_sheet(all_draft_data)
@@ -593,11 +616,13 @@ if ENABLE_DRAFT_BOARD:
                         st.info(f"No {pos}s on your board yet. Use the search above to add players.")
                         continue
 
-                    # Sort by tier, then by name
+                    # Sort by tier, then by rank within tier
                     pos_players["tier"] = pos_players["tier"].astype(int)
-                    pos_players = pos_players.sort_values(["tier", "name"])
+                    pos_players["rank"] = pos_players["rank"].fillna(0).astype(int)
+                    pos_players = pos_players.sort_values(["tier", "rank"])
 
-                    for _, row in pos_players.iterrows():
+                    player_list = list(pos_players.iterrows())
+                    for list_idx, (_, row) in enumerate(player_list):
                         is_drafted = row.get("drafted", False)
                         if pd.isna(is_drafted):
                             is_drafted = False
@@ -612,15 +637,12 @@ if ENABLE_DRAFT_BOARD:
                         record = db.get_player(player_id)
                         stat_parts = []
                         if record:
-                            # 2025 season Pts/G
                             season_2025 = next((s for s in record.seasons if s.year == 2025), None)
                             if season_2025 and season_2025.pts_per_game > 0:
                                 stat_parts.append(f"Pts/G '25: {season_2025.pts_per_game:.1f}")
-                            # Career Pts/G
                             cpg = record.career_pts_g
                             if cpg:
                                 stat_parts.append(f"Car: {cpg:.1f}")
-                            # Reliability score
                             rel = record.raw_reliability_score
                             if rel:
                                 stat_parts.append(f"Rel: {rel:.1f}")
@@ -636,7 +658,7 @@ if ENABLE_DRAFT_BOARD:
                         }
                         tier_color = tier_colors.get(player_tier, "#e0e0e0")
 
-                        col_status, col_info, col_actions = st.columns([0.5, 3, 1.5])
+                        col_status, col_info, col_arrows, col_actions = st.columns([0.5, 3, 0.5, 1.5])
 
                         with col_status:
                             if is_drafted:
@@ -654,6 +676,41 @@ if ENABLE_DRAFT_BOARD:
                             else:
                                 st.markdown(f"<span style='color:{tier_color}; font-weight:bold'>{display_text}</span>",
                                             unsafe_allow_html=True)
+
+                        with col_arrows:
+                            arrow_cols = st.columns(2)
+                            with arrow_cols[0]:
+                                if list_idx > 0:
+                                    if st.button("↑", key=f"up_{draft_user}_{player_id}_{pos}"):
+                                        # Swap ranks with the player above
+                                        prev_row = player_list[list_idx - 1][1]
+                                        prev_id = prev_row["player_id"]
+                                        cur_rank = int(row["rank"])
+                                        prev_rank = int(prev_row["rank"])
+                                        mask_cur = ((all_draft_data["player_id"] == player_id) &
+                                                    (all_draft_data["user"] == draft_user))
+                                        mask_prev = ((all_draft_data["player_id"] == prev_id) &
+                                                     (all_draft_data["user"] == draft_user))
+                                        all_draft_data.loc[mask_cur, "rank"] = prev_rank
+                                        all_draft_data.loc[mask_prev, "rank"] = cur_rank
+                                        _save_draft_sheet(all_draft_data)
+                                        st.rerun()
+                            with arrow_cols[1]:
+                                if list_idx < len(player_list) - 1:
+                                    if st.button("↓", key=f"dn_{draft_user}_{player_id}_{pos}"):
+                                        # Swap ranks with the player below
+                                        next_row = player_list[list_idx + 1][1]
+                                        next_id = next_row["player_id"]
+                                        cur_rank = int(row["rank"])
+                                        next_rank = int(next_row["rank"])
+                                        mask_cur = ((all_draft_data["player_id"] == player_id) &
+                                                    (all_draft_data["user"] == draft_user))
+                                        mask_next = ((all_draft_data["player_id"] == next_id) &
+                                                     (all_draft_data["user"] == draft_user))
+                                        all_draft_data.loc[mask_cur, "rank"] = next_rank
+                                        all_draft_data.loc[mask_next, "rank"] = cur_rank
+                                        _save_draft_sheet(all_draft_data)
+                                        st.rerun()
 
                         with col_actions:
                             btn_cols = st.columns(2)
