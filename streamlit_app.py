@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from fantasy_football.player_db import PlayerDatabase, games_in_season
 
+# ── Toggle this to enable/disable Draft Board ────────────────
+ENABLE_DRAFT_BOARD = False
+
 
 st.set_page_config(
     page_title="Fantasy Football DB Engine",
@@ -48,30 +51,38 @@ def _save_draft_sheet(df: pd.DataFrame):
 
 st.title("Fantasy Football DB Engine")
 
-tab_rankings, tab_search, tab_compare, tab_rookies, tab_draft = st.tabs(["Rankings", "Player Search", "Compare", "2026 Rookies", "Draft Board"])
+if ENABLE_DRAFT_BOARD:
+    tab_rankings, tab_search, tab_compare, tab_rookies, tab_draft = st.tabs(["Rankings", "Player Search", "Compare", "2026 Rookies", "Draft Board"])
+else:
+    tab_rankings, tab_search, tab_compare, tab_rookies = st.tabs(["Rankings", "Player Search", "Compare", "2026 Rookies"])
 
 # ── Rankings Tab ──────────────────────────────────────────────
 
 with tab_rankings:
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    if ENABLE_DRAFT_BOARD:
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    else:
+        col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         year = st.selectbox("Year", list(range(2025, 1998, -1)), index=0)
     with col2:
         pos = st.selectbox("Position", ["ALL", "QB", "RB", "WR", "TE"], index=0, key="rank_pos")
     with col3:
         limit = st.number_input("Limit", min_value=1, max_value=500, value=50)
-    with col4:
-        hide_drafted = st.checkbox("Hide drafted", value=False, key="hide_drafted")
 
-    # Load drafted player IDs from Google Sheets
+    # Draft board integration
     _rankings_drafted_ids = set()
-    try:
-        _rankings_draft_df = _load_draft_sheet()
-        if not _rankings_draft_df.empty and "drafted" in _rankings_draft_df.columns:
-            _drafted_rows = _rankings_draft_df[_rankings_draft_df["drafted"] == True]  # noqa: E712
-            _rankings_drafted_ids = set(_drafted_rows["player_id"].tolist())
-    except Exception:
-        pass
+    hide_drafted = False
+    if ENABLE_DRAFT_BOARD:
+        with col4:
+            hide_drafted = st.checkbox("Hide drafted", value=False, key="hide_drafted")
+        try:
+            _rankings_draft_df = _load_draft_sheet()
+            if not _rankings_draft_df.empty and "drafted" in _rankings_draft_df.columns:
+                _drafted_rows = _rankings_draft_df[_rankings_draft_df["drafted"] == True]  # noqa: E712
+                _rankings_drafted_ids = set(_drafted_rows["player_id"].tolist())
+        except Exception:
+            pass
 
     # Build rankings data
     ranked = []
@@ -97,10 +108,13 @@ with tab_rankings:
             col_scr = record.college_dom_score
             sorted_yrs = sorted(s.year for s in record.seasons)
             season_num = sorted_yrs.index(year) + 1 if year in sorted_yrs else None
-            is_drafted = record.player_id in _rankings_drafted_ids
-            rows.append({
+            is_drafted = record.player_id in _rankings_drafted_ids if ENABLE_DRAFT_BOARD else False
+            row_data = {
                 "Rank": i,
-                "Status": "TAKEN" if is_drafted else "",
+            }
+            if ENABLE_DRAFT_BOARD:
+                row_data["Status"] = "TAKEN" if is_drafted else ""
+            row_data.update({
                 "Player": record.name,
                 "Age": record.age if record.age is not None else None,
                 "Pos": record.position,
@@ -120,16 +134,15 @@ with tab_rankings:
                 "BRK": "YES" if record.breakout else "",
                 "ColScr": round(col_scr, 1) if col_scr is not None else None,
             })
+            rows.append(row_data)
 
         df = pd.DataFrame(rows)
-        st.dataframe(
-            df,
-            width="stretch",
-            hide_index=True,
-            height=600,
-            column_config={
+        col_config = {
                 "Rank": st.column_config.NumberColumn(width="small"),
-                "Status": st.column_config.TextColumn(width="small"),
+        }
+        if ENABLE_DRAFT_BOARD:
+            col_config["Status"] = st.column_config.TextColumn(width="small")
+        col_config.update({
                 "Player": st.column_config.TextColumn(width="medium"),
                 "Age": st.column_config.NumberColumn(width="small"),
                 "Pos": st.column_config.TextColumn(width="small"),
@@ -148,12 +161,19 @@ with tab_rankings:
                 "AdjRel": st.column_config.NumberColumn(format="%.1f"),
                 "BRK": st.column_config.TextColumn(width="small"),
                 "ColScr": st.column_config.NumberColumn(format="%.1f"),
-            },
+        })
+        st.dataframe(
+            df,
+            width="stretch",
+            hide_index=True,
+            height=600,
+            column_config=col_config,
         )
-        drafted_count = sum(1 for r in rows if r["Status"] == "TAKEN")
         caption = f"{len(rows)} players shown for {year} season"
-        if drafted_count:
-            caption += f" ({drafted_count} drafted)"
+        if ENABLE_DRAFT_BOARD:
+            drafted_count = sum(1 for r in rows if r.get("Status") == "TAKEN")
+            if drafted_count:
+                caption += f" ({drafted_count} drafted)"
         st.caption(caption)
     else:
         st.info(f"No player data found for {year}.")
@@ -488,170 +508,171 @@ with tab_rookies:
 
 # ── Draft Board Tab ──────────────────────────────────────────
 
-with tab_draft:
-    # User identification
-    if "draft_user" not in st.session_state:
-        st.session_state.draft_user = ""
+if ENABLE_DRAFT_BOARD:
+    with tab_draft:
+        # User identification
+        if "draft_user" not in st.session_state:
+            st.session_state.draft_user = ""
 
-    user_col, info_col = st.columns([1, 2])
-    with user_col:
-        draft_user = st.text_input("Your draft code (e.g. 'john')", value=st.session_state.draft_user,
-                                    key="draft_user_input", placeholder="Enter your name or code...")
-    with info_col:
+        user_col, info_col = st.columns([1, 2])
+        with user_col:
+            draft_user = st.text_input("Your draft code (e.g. 'john')", value=st.session_state.draft_user,
+                                        key="draft_user_input", placeholder="Enter your name or code...")
+        with info_col:
+            if draft_user:
+                st.success(f"Logged in as: **{draft_user}**")
+            else:
+                st.warning("Enter a draft code to get started.")
+
         if draft_user:
-            st.success(f"Logged in as: **{draft_user}**")
-        else:
-            st.warning("Enter a draft code to get started.")
+            st.session_state.draft_user = draft_user
 
-    if draft_user:
-        st.session_state.draft_user = draft_user
+            # Load data from Google Sheets
+            all_draft_data = _load_draft_sheet()
+            user_draft = all_draft_data[all_draft_data["user"] == draft_user].copy()
 
-        # Load data from Google Sheets
-        all_draft_data = _load_draft_sheet()
-        user_draft = all_draft_data[all_draft_data["user"] == draft_user].copy()
+            # Collect all drafted player_ids across ALL users
+            all_drafted_ids = set()
+            if "drafted" in all_draft_data.columns:
+                drafted_rows = all_draft_data[all_draft_data["drafted"] == True]  # noqa: E712
+                all_drafted_ids = set(drafted_rows["player_id"].tolist())
 
-        # Collect all drafted player_ids across ALL users
-        all_drafted_ids = set()
-        if "drafted" in all_draft_data.columns:
-            drafted_rows = all_draft_data[all_draft_data["drafted"] == True]  # noqa: E712
-            all_drafted_ids = set(drafted_rows["player_id"].tolist())
+            # --- Add player section ---
+            st.markdown("### Add Player to Board")
+            add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
 
-        # --- Add player section ---
-        st.markdown("### Add Player to Board")
-        add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
+            with add_col1:
+                add_query = st.text_input("Search player to add", placeholder="Type a player name...",
+                                           key="draft_add_search")
+            with add_col2:
+                tier = st.selectbox("Tier", [1, 2, 3, 4, 5], index=0, key="draft_tier",
+                                    help="1 = must draft, 5 = deep sleeper")
 
-        with add_col1:
-            add_query = st.text_input("Search player to add", placeholder="Type a player name...",
-                                       key="draft_add_search")
-        with add_col2:
-            tier = st.selectbox("Tier", [1, 2, 3, 4, 5], index=0, key="draft_tier",
-                                help="1 = must draft, 5 = deep sleeper")
+            if add_query:
+                search_results = db.search(add_query.strip(), limit=10)
+                if search_results:
+                    add_options = [f"{p.name}  |  {p.position}  |  {p.current_team}" for p in search_results]
+                    with add_col1:
+                        add_idx = st.selectbox("Select player", range(len(add_options)),
+                                                format_func=lambda i: add_options[i], key="draft_add_select")
 
-        if add_query:
-            search_results = db.search(add_query.strip(), limit=10)
-            if search_results:
-                add_options = [f"{p.name}  |  {p.position}  |  {p.current_team}" for p in search_results]
-                with add_col1:
-                    add_idx = st.selectbox("Select player", range(len(add_options)),
-                                            format_func=lambda i: add_options[i], key="draft_add_select")
+                    selected_player = search_results[add_idx]
 
-                selected_player = search_results[add_idx]
+                    # Check if already on this user's board
+                    already_on_board = selected_player.player_id in user_draft["player_id"].values if not user_draft.empty else False
 
-                # Check if already on this user's board
-                already_on_board = selected_player.player_id in user_draft["player_id"].values if not user_draft.empty else False
+                    with add_col3:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if already_on_board:
+                            st.info("Already on your board")
+                        elif st.button("Add to Board", type="primary", key="draft_add_btn"):
+                            new_row = pd.DataFrame([{
+                                "user": draft_user,
+                                "player_id": selected_player.player_id,
+                                "name": selected_player.name,
+                                "position": selected_player.position,
+                                "team": selected_player.current_team,
+                                "tier": tier,
+                                "drafted": False,
+                            }])
+                            all_draft_data = pd.concat([all_draft_data, new_row], ignore_index=True)
+                            _save_draft_sheet(all_draft_data)
+                            st.rerun()
 
-                with add_col3:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if already_on_board:
-                        st.info("Already on your board")
-                    elif st.button("Add to Board", type="primary", key="draft_add_btn"):
-                        new_row = pd.DataFrame([{
-                            "user": draft_user,
-                            "player_id": selected_player.player_id,
-                            "name": selected_player.name,
-                            "position": selected_player.position,
-                            "team": selected_player.current_team,
-                            "tier": tier,
-                            "drafted": False,
-                        }])
-                        all_draft_data = pd.concat([all_draft_data, new_row], ignore_index=True)
-                        _save_draft_sheet(all_draft_data)
-                        st.rerun()
-
-        st.markdown("---")
-
-        # --- Draft board display by position ---
-        st.markdown("### Your Draft Board")
-        pos_tabs = st.tabs(["QB", "RB", "WR", "TE"])
-
-        for pos_tab, pos in zip(pos_tabs, ["QB", "RB", "WR", "TE"]):
-            with pos_tab:
-                pos_players = user_draft[user_draft["position"] == pos].copy() if not user_draft.empty else pd.DataFrame()
-
-                if pos_players.empty:
-                    st.info(f"No {pos}s on your board yet. Use the search above to add players.")
-                    continue
-
-                # Sort by tier, then by name
-                pos_players["tier"] = pos_players["tier"].astype(int)
-                pos_players = pos_players.sort_values(["tier", "name"])
-
-                for _, row in pos_players.iterrows():
-                    is_drafted = row.get("drafted", False)
-                    if pd.isna(is_drafted):
-                        is_drafted = False
-                    is_drafted = bool(is_drafted)
-
-                    player_id = row["player_id"]
-                    name = row["name"]
-                    team = row.get("team", "")
-                    player_tier = int(row["tier"])
-
-                    # Look up live stats
-                    record = db.get_player(player_id)
-                    rel_str = ""
-                    if record:
-                        rel = record.raw_reliability_score
-                        rel_str = f"RelScr: {rel:.1f}" if rel else ""
-
-                    # Tier colors
-                    tier_colors = {
-                        1: "#FFD700",  # Gold
-                        2: "#C0C0C0",  # Silver
-                        3: "#CD7F32",  # Bronze
-                        4: "#6CA6CD",  # Steel blue
-                        5: "#8A8A8A",  # Grey
-                    }
-                    tier_color = tier_colors.get(player_tier, "#e0e0e0")
-
-                    col_status, col_info, col_actions = st.columns([0.5, 3, 1.5])
-
-                    with col_status:
-                        if is_drafted:
-                            st.markdown("~~:red[TAKEN]~~")
-                        else:
-                            st.markdown(":green[AVAIL]")
-
-                    with col_info:
-                        display_text = f"T{player_tier} — {name} ({team})"
-                        if rel_str:
-                            display_text += f" — {rel_str}"
-                        if is_drafted:
-                            st.markdown(f"~~<span style='color:{tier_color}'>{display_text}</span>~~",
-                                        unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span style='color:{tier_color}; font-weight:bold'>{display_text}</span>",
-                                        unsafe_allow_html=True)
-
-                    with col_actions:
-                        btn_cols = st.columns(2)
-                        with btn_cols[0]:
-                            if not is_drafted:
-                                if st.button("Draft", key=f"draft_{draft_user}_{player_id}",
-                                              type="secondary"):
-                                    mask = ((all_draft_data["player_id"] == player_id) &
-                                            (all_draft_data["user"] == draft_user))
-                                    all_draft_data.loc[mask, "drafted"] = True
-                                    _save_draft_sheet(all_draft_data)
-                                    st.rerun()
-                            else:
-                                if st.button("Undo", key=f"undraft_{draft_user}_{player_id}",
-                                              type="secondary"):
-                                    mask = ((all_draft_data["player_id"] == player_id) &
-                                            (all_draft_data["user"] == draft_user))
-                                    all_draft_data.loc[mask, "drafted"] = False
-                                    _save_draft_sheet(all_draft_data)
-                                    st.rerun()
-                        with btn_cols[1]:
-                            if st.button("Remove", key=f"remove_{draft_user}_{player_id}",
-                                          type="secondary"):
-                                mask = ~((all_draft_data["player_id"] == player_id) &
-                                         (all_draft_data["user"] == draft_user))
-                                all_draft_data = all_draft_data[mask]
-                                _save_draft_sheet(all_draft_data)
-                                st.rerun()
-
-        # --- Show drafted players affecting Rankings ---
-        if all_drafted_ids:
             st.markdown("---")
-            st.caption(f"{len(all_drafted_ids)} players drafted across all users — these are greyed out in Rankings.")
+
+            # --- Draft board display by position ---
+            st.markdown("### Your Draft Board")
+            pos_tabs = st.tabs(["QB", "RB", "WR", "TE"])
+
+            for pos_tab, pos in zip(pos_tabs, ["QB", "RB", "WR", "TE"]):
+                with pos_tab:
+                    pos_players = user_draft[user_draft["position"] == pos].copy() if not user_draft.empty else pd.DataFrame()
+
+                    if pos_players.empty:
+                        st.info(f"No {pos}s on your board yet. Use the search above to add players.")
+                        continue
+
+                    # Sort by tier, then by name
+                    pos_players["tier"] = pos_players["tier"].astype(int)
+                    pos_players = pos_players.sort_values(["tier", "name"])
+
+                    for _, row in pos_players.iterrows():
+                        is_drafted = row.get("drafted", False)
+                        if pd.isna(is_drafted):
+                            is_drafted = False
+                        is_drafted = bool(is_drafted)
+
+                        player_id = row["player_id"]
+                        name = row["name"]
+                        team = row.get("team", "")
+                        player_tier = int(row["tier"])
+
+                        # Look up live stats
+                        record = db.get_player(player_id)
+                        rel_str = ""
+                        if record:
+                            rel = record.raw_reliability_score
+                            rel_str = f"RelScr: {rel:.1f}" if rel else ""
+
+                        # Tier colors
+                        tier_colors = {
+                            1: "#FFD700",  # Gold
+                            2: "#C0C0C0",  # Silver
+                            3: "#CD7F32",  # Bronze
+                            4: "#6CA6CD",  # Steel blue
+                            5: "#8A8A8A",  # Grey
+                        }
+                        tier_color = tier_colors.get(player_tier, "#e0e0e0")
+
+                        col_status, col_info, col_actions = st.columns([0.5, 3, 1.5])
+
+                        with col_status:
+                            if is_drafted:
+                                st.markdown("~~:red[TAKEN]~~")
+                            else:
+                                st.markdown(":green[AVAIL]")
+
+                        with col_info:
+                            display_text = f"T{player_tier} — {name} ({team})"
+                            if rel_str:
+                                display_text += f" — {rel_str}"
+                            if is_drafted:
+                                st.markdown(f"~~<span style='color:{tier_color}'>{display_text}</span>~~",
+                                            unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"<span style='color:{tier_color}; font-weight:bold'>{display_text}</span>",
+                                            unsafe_allow_html=True)
+
+                        with col_actions:
+                            btn_cols = st.columns(2)
+                            with btn_cols[0]:
+                                if not is_drafted:
+                                    if st.button("Draft", key=f"draft_{draft_user}_{player_id}",
+                                                  type="secondary"):
+                                        mask = ((all_draft_data["player_id"] == player_id) &
+                                                (all_draft_data["user"] == draft_user))
+                                        all_draft_data.loc[mask, "drafted"] = True
+                                        _save_draft_sheet(all_draft_data)
+                                        st.rerun()
+                                else:
+                                    if st.button("Undo", key=f"undraft_{draft_user}_{player_id}",
+                                                  type="secondary"):
+                                        mask = ((all_draft_data["player_id"] == player_id) &
+                                                (all_draft_data["user"] == draft_user))
+                                        all_draft_data.loc[mask, "drafted"] = False
+                                        _save_draft_sheet(all_draft_data)
+                                        st.rerun()
+                            with btn_cols[1]:
+                                if st.button("Remove", key=f"remove_{draft_user}_{player_id}",
+                                              type="secondary"):
+                                    mask = ~((all_draft_data["player_id"] == player_id) &
+                                             (all_draft_data["user"] == draft_user))
+                                    all_draft_data = all_draft_data[mask]
+                                    _save_draft_sheet(all_draft_data)
+                                    st.rerun()
+
+            # --- Show drafted players affecting Rankings ---
+            if all_drafted_ids:
+                st.markdown("---")
+                st.caption(f"{len(all_drafted_ids)} players drafted across all users — these are greyed out in Rankings.")

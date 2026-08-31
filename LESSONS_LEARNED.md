@@ -138,3 +138,5 @@ A running log of problems encountered, solutions discovered, and design decision
 6. **Add human-readable columns to machine-readable files.** A `name` column in the college CSV costs nothing but makes manual editing possible.
 
 7. **Test with real data edge cases.** Players with short careers, injured seasons, position changes, and name suffixes all exposed bugs that toy data wouldn't catch.
+
+8. **Use feature flags for optional features that touch multiple parts of the app.** The Draft Board integrates with Google Sheets, adds a tab, modifies the Rankings tab (Status column, Hide drafted checkbox), and requires secrets configuration. A single `ENABLE_DRAFT_BOARD = True/False` flag at the top of `streamlit_app.py` cleanly toggles all of it on or off without commenting out scattered code blocks.
