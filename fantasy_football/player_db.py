@@ -160,6 +160,8 @@ class PlayerRecord:
     college_dom_score: float | None = None
     college_final_year: str = ""
     _college_attempted: bool = False  # True if we already tried fetching from ESPN
+    top_offense: bool = False  # True if current team was top-10 offense last season AND player was on that team
+    _top_offenses_ref: dict | None = None  # Reference to PlayerDatabase.top_offenses
 
     def compute_college_score(self):
         """Calculate college_dom_score from raw college stats."""
@@ -199,9 +201,31 @@ class PlayerRecord:
     def career_total_pts(self) -> float:
         return round(sum(s.fantasy_points for s in self.seasons), 1)
 
+    def is_top_offense_for_year(self, year: int) -> bool:
+        """Check if this player was on a top-10 offense for a given season.
+
+        Requires: team was top-10 the previous year (year-1),
+        AND the player was on that same team in year-1.
+        """
+        if not self._top_offenses_ref:
+            return self.top_offense  # fallback to static flag
+        prev_year = year - 1
+        top_teams = self._top_offenses_ref.get(prev_year, set())
+        # Find the player's team for this year
+        season = next((s for s in self.seasons if s.year == year), None)
+        if not season or season.team not in top_teams:
+            return False
+        # Was the player on this same team the previous year?
+        prev_season = next((s for s in self.seasons if s.year == prev_year), None)
+        return prev_season is not None and prev_season.team == season.team
+
     @property
     def raw_reliability_score(self) -> float | None:
-        """Recency-weighted Pts/G × availability (no age penalty)."""
+        """Recency-weighted Pts/G × availability (no age penalty), with top-offense boost."""
+        return self.raw_reliability_score_for_year(None)
+
+    def raw_reliability_score_for_year(self, year: int | None = None) -> float | None:
+        """Recency-weighted Pts/G × availability, with optional year-aware top-offense boost."""
         if not self.seasons:
             return None
         weight_table = [0.50, 0.30, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
@@ -214,7 +238,13 @@ class PlayerRecord:
         recency_pts_g = sum(pg * w for pg, w in zip(pts_g_list, weights)) / w_sum
         total_possible = sum(games_in_season(s.year) for s in self.seasons)
         availability = self.total_games / total_possible if total_possible > 0 else 0
-        return round(recency_pts_g * availability, 1)
+        score = recency_pts_g * availability
+        if year is not None:
+            if self.is_top_offense_for_year(year):
+                score *= _OFFENSE_BOOST
+        elif self.top_offense:
+            score *= _OFFENSE_BOOST
+        return round(score, 1)
 
     @property
     def season_reliability_score(self) -> float | None:
@@ -232,7 +262,11 @@ class PlayerRecord:
     @property
     def reliability_score(self) -> float | None:
         """Recency-weighted Pts/G × availability × age penalty."""
-        raw = self.raw_reliability_score
+        return self.reliability_score_for_year(None)
+
+    def reliability_score_for_year(self, year: int | None = None) -> float | None:
+        """Recency-weighted Pts/G × availability × age penalty, year-aware."""
+        raw = self.raw_reliability_score_for_year(year)
         if raw is None:
             return None
         age_factor = 1.0
@@ -257,12 +291,16 @@ class PlayerRecord:
         return previous.pts_per_game > 0 and latest.pts_per_game >= previous.pts_per_game * 1.4
 
 
+_OFFENSE_BOOST = 1.05  # 5% boost for players on top-10 offenses
+
+
 class PlayerDatabase:
     """Loads and indexes all players across multiple seasons."""
 
     def __init__(self):
         self.players: dict[str, PlayerRecord] = {}  # player_id -> PlayerRecord
         self.rookie_projections: list[RookieProjection] = []
+        self.top_offenses: dict[int, set[str]] = {}  # year -> set of top-10 team abbrevs
         self.loaded = False
         self._on_progress = None
         self._on_complete = None
@@ -295,6 +333,7 @@ class PlayerDatabase:
                 if self._on_progress:
                     self._on_progress("Loaded from cache.")
                 self._score_all()
+                self._compute_top_offenses()
                 self._load_college_from_csv()
                 self._load_births_from_csv()
                 if not any(r.birth_date for r in self.players.values()):
@@ -334,6 +373,7 @@ class PlayerDatabase:
         self._merge_espn_players()
 
         self._score_all()
+        self._compute_top_offenses()
 
         # Fetch birth dates from nflverse rosters
         self._fetch_and_cache_births()
@@ -374,6 +414,47 @@ class PlayerDatabase:
             if record.seasons:
                 latest = max(record.seasons, key=lambda s: s.year)
                 record.current_team = latest.team
+
+    def _compute_top_offenses(self):
+        """Rank teams by total fantasy points per season, store top 10 per year."""
+        # team -> year -> total fantasy points
+        team_pts: dict[str, dict[int, float]] = {}
+        for record in self.players.values():
+            for season in record.seasons:
+                if season.stats.games_played == 0:
+                    continue
+                team_pts.setdefault(season.team, {})
+                team_pts[season.team][season.year] = (
+                    team_pts[season.team].get(season.year, 0) + season.fantasy_points
+                )
+
+        # For each year, find top 10 teams
+        all_years = set()
+        for team_years in team_pts.values():
+            all_years.update(team_years.keys())
+
+        for year in all_years:
+            year_totals = []
+            for team, years in team_pts.items():
+                if year in years:
+                    year_totals.append((team, years[year]))
+            year_totals.sort(key=lambda x: x[1], reverse=True)
+            self.top_offenses[year] = {team for team, _ in year_totals[:10]}
+
+        # Tag players with top_offenses reference and set default top_offense flag
+        for record in self.players.values():
+            record._top_offenses_ref = self.top_offenses
+            record.top_offense = False
+            if not record.seasons:
+                continue
+            latest = max(record.seasons, key=lambda s: s.year)
+            prev_year = latest.year - 1
+            top_teams = self.top_offenses.get(prev_year, set())
+            if record.current_team not in top_teams:
+                continue
+            prev_season = next((s for s in record.seasons if s.year == prev_year), None)
+            if prev_season and prev_season.team == record.current_team:
+                record.top_offense = True
 
     # ── nflverse data loading ─────────────────────────────────
 

@@ -103,9 +103,10 @@ with tab_rankings:
         rows = []
         for i, (record, season) in enumerate(ranked, 1):
             szn_rel = record.season_reliability_score
-            raw_rel = record.raw_reliability_score
-            rel = record.reliability_score
+            raw_rel = record.raw_reliability_score_for_year(year)
+            rel = record.reliability_score_for_year(year)
             col_scr = record.college_dom_score
+            is_top_off = record.is_top_offense_for_year(year)
             sorted_yrs = sorted(s.year for s in record.seasons)
             season_num = sorted_yrs.index(year) + 1 if year in sorted_yrs else None
             is_drafted = record.player_id in _rankings_drafted_ids if ENABLE_DRAFT_BOARD else False
@@ -131,6 +132,7 @@ with tab_rankings:
                 "SznRel": round(szn_rel, 1) if szn_rel is not None else None,
                 "RelScr": round(raw_rel, 1) if raw_rel is not None else None,
                 "AdjRel": round(rel, 1) if rel is not None else None,
+                "Top10": "YES" if is_top_off else "",
                 "BRK": "YES" if record.breakout else "",
                 "ColScr": round(col_scr, 1) if col_scr is not None else None,
             })
@@ -159,6 +161,7 @@ with tab_rankings:
                 "SznRel": st.column_config.NumberColumn(format="%.1f"),
                 "RelScr": st.column_config.NumberColumn(format="%.1f"),
                 "AdjRel": st.column_config.NumberColumn(format="%.1f"),
+                "Top10": st.column_config.TextColumn(width="small"),
                 "BRK": st.column_config.TextColumn(width="small"),
                 "ColScr": st.column_config.NumberColumn(format="%.1f"),
         })
