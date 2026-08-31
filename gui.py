@@ -24,12 +24,11 @@ RANKING_COLUMNS = [
     ("szn_rel", "SznRel", 70),
     ("raw_rel", "RelScr", 70),
     ("rel_score", "AdjRel", 70),
-    ("top_off", "Top10", 50),
     ("breakout", "BRK", 50),
     ("col_score", "ColScr", 65),
 ]
 
-TEXT_COLUMNS = {"name", "position", "team", "breakout", "top_off"}
+TEXT_COLUMNS = {"name", "position", "team", "breakout"}
 
 ROOKIE_COLUMNS = [
     ("rank", "Rank", 50),
@@ -811,8 +810,8 @@ class FantasyFootballApp:
                 continue
             ranked.append((record, season))
 
-        # Sort by fantasy points for that season (descending)
-        ranked.sort(key=lambda x: x[1].fantasy_points, reverse=True)
+        # Sort by Pts/G for that season (descending)
+        ranked.sort(key=lambda x: x[1].pts_per_game, reverse=True)
         ranked = ranked[:limit]
 
         rows = []
@@ -821,8 +820,6 @@ class FantasyFootballApp:
             raw_rel = record.raw_reliability_score_for_year(year)
             rel = record.reliability_score_for_year(year)
             col_scr = record.college_dom_score
-            is_top_off = record.is_top_offense_for_year(year)
-
             age = record.age if record.age is not None else "--"
 
             sorted_yrs = sorted(s.year for s in record.seasons)
@@ -846,7 +843,6 @@ class FantasyFootballApp:
                 round(szn_rel, 1) if szn_rel is not None else "--",
                 round(raw_rel, 1) if raw_rel is not None else "--",
                 round(rel, 1) if rel is not None else "--",
-                "YES" if is_top_off else "",
                 "YES" if record.breakout else "",
                 round(col_scr, 1) if col_scr is not None else "--",
             ))

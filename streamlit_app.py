@@ -3,7 +3,7 @@ import pandas as pd
 from fantasy_football.player_db import PlayerDatabase, games_in_season
 
 # ── Toggle this to enable/disable Draft Board ────────────────
-ENABLE_DRAFT_BOARD = False
+ENABLE_DRAFT_BOARD = True
 
 
 st.set_page_config(
@@ -29,7 +29,7 @@ def _load_draft_sheet():
     try:
         from streamlit_gsheets import GSheetsConnection
         conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet="Draftboard", ttl=0)
+        df = conn.read(worksheet="Draftboard", ttl=5)
         if df is not None and not df.empty:
             df = df.dropna(how="all")
             return df
@@ -96,7 +96,7 @@ with tab_rankings:
             continue
         ranked.append((record, season))
 
-    ranked.sort(key=lambda x: x[1].fantasy_points, reverse=True)
+    ranked.sort(key=lambda x: x[1].pts_per_game, reverse=True)
     ranked = ranked[:limit]
 
     if ranked:
@@ -106,7 +106,6 @@ with tab_rankings:
             raw_rel = record.raw_reliability_score_for_year(year)
             rel = record.reliability_score_for_year(year)
             col_scr = record.college_dom_score
-            is_top_off = record.is_top_offense_for_year(year)
             sorted_yrs = sorted(s.year for s in record.seasons)
             season_num = sorted_yrs.index(year) + 1 if year in sorted_yrs else None
             is_drafted = record.player_id in _rankings_drafted_ids if ENABLE_DRAFT_BOARD else False
@@ -132,7 +131,6 @@ with tab_rankings:
                 "SznRel": round(szn_rel, 1) if szn_rel is not None else None,
                 "RelScr": round(raw_rel, 1) if raw_rel is not None else None,
                 "AdjRel": round(rel, 1) if rel is not None else None,
-                "Top10": "YES" if is_top_off else "",
                 "BRK": "YES" if record.breakout else "",
                 "ColScr": round(col_scr, 1) if col_scr is not None else None,
             })
@@ -161,7 +159,6 @@ with tab_rankings:
                 "SznRel": st.column_config.NumberColumn(format="%.1f"),
                 "RelScr": st.column_config.NumberColumn(format="%.1f"),
                 "AdjRel": st.column_config.NumberColumn(format="%.1f"),
-                "Top10": st.column_config.TextColumn(width="small"),
                 "BRK": st.column_config.TextColumn(width="small"),
                 "ColScr": st.column_config.NumberColumn(format="%.1f"),
         })
@@ -613,10 +610,21 @@ if ENABLE_DRAFT_BOARD:
 
                         # Look up live stats
                         record = db.get_player(player_id)
-                        rel_str = ""
+                        stat_parts = []
                         if record:
+                            # 2025 season Pts/G
+                            season_2025 = next((s for s in record.seasons if s.year == 2025), None)
+                            if season_2025 and season_2025.pts_per_game > 0:
+                                stat_parts.append(f"Pts/G '25: {season_2025.pts_per_game:.1f}")
+                            # Career Pts/G
+                            cpg = record.career_pts_g
+                            if cpg:
+                                stat_parts.append(f"Car: {cpg:.1f}")
+                            # Reliability score
                             rel = record.raw_reliability_score
-                            rel_str = f"RelScr: {rel:.1f}" if rel else ""
+                            if rel:
+                                stat_parts.append(f"Rel: {rel:.1f}")
+                        stat_str = " | ".join(stat_parts)
 
                         # Tier colors
                         tier_colors = {
@@ -638,8 +646,8 @@ if ENABLE_DRAFT_BOARD:
 
                         with col_info:
                             display_text = f"T{player_tier} — {name} ({team})"
-                            if rel_str:
-                                display_text += f" — {rel_str}"
+                            if stat_str:
+                                display_text += f" — {stat_str}"
                             if is_drafted:
                                 st.markdown(f"~~<span style='color:{tier_color}'>{display_text}</span>~~",
                                             unsafe_allow_html=True)

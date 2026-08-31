@@ -225,7 +225,7 @@ class PlayerRecord:
         return self.raw_reliability_score_for_year(None)
 
     def raw_reliability_score_for_year(self, year: int | None = None) -> float | None:
-        """Recency-weighted Pts/G × availability, with optional year-aware top-offense boost."""
+        """Recency-weighted Pts/G × availability."""
         if not self.seasons:
             return None
         weight_table = [0.50, 0.30, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
@@ -238,13 +238,7 @@ class PlayerRecord:
         recency_pts_g = sum(pg * w for pg, w in zip(pts_g_list, weights)) / w_sum
         total_possible = sum(games_in_season(s.year) for s in self.seasons)
         availability = self.total_games / total_possible if total_possible > 0 else 0
-        score = recency_pts_g * availability
-        if year is not None:
-            if self.is_top_offense_for_year(year):
-                score *= _OFFENSE_BOOST
-        elif self.top_offense:
-            score *= _OFFENSE_BOOST
-        return round(score, 1)
+        return round(recency_pts_g * availability, 1)
 
     @property
     def season_reliability_score(self) -> float | None:
