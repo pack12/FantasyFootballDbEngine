@@ -616,10 +616,41 @@ if ENABLE_DRAFT_BOARD:
                         st.info(f"No {pos}s on your board yet. Use the search above to add players.")
                         continue
 
-                    # Sort by tier, then by rank within tier
+                    # Sort option
+                    sort_options = ["Custom (My Ranking)", "Pts/G '25", "Career Pts/G", "Rel Score", "Tier"]
+                    sort_by = st.selectbox("Sort by", sort_options, index=0, key=f"sort_{pos}")
+
+                    # Look up stats for all players in this position for sorting
                     pos_players["tier"] = pos_players["tier"].astype(int)
                     pos_players["rank"] = pos_players["rank"].fillna(0).astype(int)
-                    pos_players = pos_players.sort_values(["tier", "rank"])
+                    pos_players["_pts_g_25"] = 0.0
+                    pos_players["_career_pts_g"] = 0.0
+                    pos_players["_rel"] = 0.0
+                    for idx, prow in pos_players.iterrows():
+                        rec = db.get_player(prow["player_id"])
+                        if rec:
+                            s25 = next((s for s in rec.seasons if s.year == 2025), None)
+                            if s25 and s25.pts_per_game > 0:
+                                pos_players.at[idx, "_pts_g_25"] = s25.pts_per_game
+                            cpg = rec.career_pts_g
+                            if cpg:
+                                pos_players.at[idx, "_career_pts_g"] = cpg
+                            rel = rec.raw_reliability_score
+                            if rel:
+                                pos_players.at[idx, "_rel"] = rel
+
+                    if sort_by == "Custom (My Ranking)":
+                        pos_players = pos_players.sort_values(["tier", "rank"])
+                    elif sort_by == "Pts/G '25":
+                        pos_players = pos_players.sort_values("_pts_g_25", ascending=False)
+                    elif sort_by == "Career Pts/G":
+                        pos_players = pos_players.sort_values("_career_pts_g", ascending=False)
+                    elif sort_by == "Rel Score":
+                        pos_players = pos_players.sort_values("_rel", ascending=False)
+                    elif sort_by == "Tier":
+                        pos_players = pos_players.sort_values("tier")
+
+                    is_custom_sort = sort_by == "Custom (My Ranking)"
 
                     player_list = list(pos_players.iterrows())
                     for list_idx, (_, row) in enumerate(player_list):
@@ -633,19 +664,13 @@ if ENABLE_DRAFT_BOARD:
                         team = row.get("team", "")
                         player_tier = int(row["tier"])
 
-                        # Look up live stats
-                        record = db.get_player(player_id)
                         stat_parts = []
-                        if record:
-                            season_2025 = next((s for s in record.seasons if s.year == 2025), None)
-                            if season_2025 and season_2025.pts_per_game > 0:
-                                stat_parts.append(f"Pts/G '25: {season_2025.pts_per_game:.1f}")
-                            cpg = record.career_pts_g
-                            if cpg:
-                                stat_parts.append(f"Car: {cpg:.1f}")
-                            rel = record.raw_reliability_score
-                            if rel:
-                                stat_parts.append(f"Rel: {rel:.1f}")
+                        if row["_pts_g_25"] > 0:
+                            stat_parts.append(f"Pts/G '25: {row['_pts_g_25']:.1f}")
+                        if row["_career_pts_g"] > 0:
+                            stat_parts.append(f"Car: {row['_career_pts_g']:.1f}")
+                        if row["_rel"] > 0:
+                            stat_parts.append(f"Rel: {row['_rel']:.1f}")
                         stat_str = " | ".join(stat_parts)
 
                         # Tier colors
@@ -658,7 +683,10 @@ if ENABLE_DRAFT_BOARD:
                         }
                         tier_color = tier_colors.get(player_tier, "#e0e0e0")
 
-                        col_status, col_info, col_arrows, col_actions = st.columns([0.5, 3, 0.5, 1.5])
+                        if is_custom_sort:
+                            col_status, col_info, col_arrows, col_actions = st.columns([0.5, 3, 0.5, 1.5])
+                        else:
+                            col_status, col_info, col_actions = st.columns([0.5, 3.5, 1.5])
 
                         with col_status:
                             if is_drafted:
@@ -667,7 +695,7 @@ if ENABLE_DRAFT_BOARD:
                                 st.markdown(":green[AVAIL]")
 
                         with col_info:
-                            display_text = f"T{player_tier} — {name} ({team})"
+                            display_text = f"#{list_idx + 1} T{player_tier} — {name} ({team})"
                             if stat_str:
                                 display_text += f" — {stat_str}"
                             if is_drafted:
@@ -677,40 +705,39 @@ if ENABLE_DRAFT_BOARD:
                                 st.markdown(f"<span style='color:{tier_color}; font-weight:bold'>{display_text}</span>",
                                             unsafe_allow_html=True)
 
-                        with col_arrows:
-                            arrow_cols = st.columns(2)
-                            with arrow_cols[0]:
-                                if list_idx > 0:
-                                    if st.button("↑", key=f"up_{draft_user}_{player_id}_{pos}"):
-                                        # Swap ranks with the player above
-                                        prev_row = player_list[list_idx - 1][1]
-                                        prev_id = prev_row["player_id"]
-                                        cur_rank = int(row["rank"])
-                                        prev_rank = int(prev_row["rank"])
-                                        mask_cur = ((all_draft_data["player_id"] == player_id) &
-                                                    (all_draft_data["user"] == draft_user))
-                                        mask_prev = ((all_draft_data["player_id"] == prev_id) &
-                                                     (all_draft_data["user"] == draft_user))
-                                        all_draft_data.loc[mask_cur, "rank"] = prev_rank
-                                        all_draft_data.loc[mask_prev, "rank"] = cur_rank
-                                        _save_draft_sheet(all_draft_data)
-                                        st.rerun()
-                            with arrow_cols[1]:
-                                if list_idx < len(player_list) - 1:
-                                    if st.button("↓", key=f"dn_{draft_user}_{player_id}_{pos}"):
-                                        # Swap ranks with the player below
-                                        next_row = player_list[list_idx + 1][1]
-                                        next_id = next_row["player_id"]
-                                        cur_rank = int(row["rank"])
-                                        next_rank = int(next_row["rank"])
-                                        mask_cur = ((all_draft_data["player_id"] == player_id) &
-                                                    (all_draft_data["user"] == draft_user))
-                                        mask_next = ((all_draft_data["player_id"] == next_id) &
-                                                     (all_draft_data["user"] == draft_user))
-                                        all_draft_data.loc[mask_cur, "rank"] = next_rank
-                                        all_draft_data.loc[mask_next, "rank"] = cur_rank
-                                        _save_draft_sheet(all_draft_data)
-                                        st.rerun()
+                        if is_custom_sort:
+                            with col_arrows:
+                                arrow_cols = st.columns(2)
+                                with arrow_cols[0]:
+                                    if list_idx > 0:
+                                        if st.button("↑", key=f"up_{draft_user}_{player_id}_{pos}"):
+                                            prev_row = player_list[list_idx - 1][1]
+                                            prev_id = prev_row["player_id"]
+                                            cur_rank = int(row["rank"])
+                                            prev_rank = int(prev_row["rank"])
+                                            mask_cur = ((all_draft_data["player_id"] == player_id) &
+                                                        (all_draft_data["user"] == draft_user))
+                                            mask_prev = ((all_draft_data["player_id"] == prev_id) &
+                                                         (all_draft_data["user"] == draft_user))
+                                            all_draft_data.loc[mask_cur, "rank"] = prev_rank
+                                            all_draft_data.loc[mask_prev, "rank"] = cur_rank
+                                            _save_draft_sheet(all_draft_data)
+                                            st.rerun()
+                                with arrow_cols[1]:
+                                    if list_idx < len(player_list) - 1:
+                                        if st.button("↓", key=f"dn_{draft_user}_{player_id}_{pos}"):
+                                            next_row = player_list[list_idx + 1][1]
+                                            next_id = next_row["player_id"]
+                                            cur_rank = int(row["rank"])
+                                            next_rank = int(next_row["rank"])
+                                            mask_cur = ((all_draft_data["player_id"] == player_id) &
+                                                        (all_draft_data["user"] == draft_user))
+                                            mask_next = ((all_draft_data["player_id"] == next_id) &
+                                                         (all_draft_data["user"] == draft_user))
+                                            all_draft_data.loc[mask_cur, "rank"] = next_rank
+                                            all_draft_data.loc[mask_next, "rank"] = cur_rank
+                                            _save_draft_sheet(all_draft_data)
+                                            st.rerun()
 
                         with col_actions:
                             btn_cols = st.columns(2)
