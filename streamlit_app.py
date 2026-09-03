@@ -771,3 +771,96 @@ if ENABLE_DRAFT_BOARD:
             if all_drafted_ids:
                 st.markdown("---")
                 st.caption(f"{len(all_drafted_ids)} players drafted across all users — these are greyed out in Rankings.")
+
+            # --- ESPN Live Draft Mode ---
+            st.markdown("---")
+            st.markdown("### ESPN Live Draft")
+
+            espn_col1, espn_col2, espn_col3 = st.columns(3)
+            with espn_col1:
+                espn_league_id = st.text_input("League ID", key="espn_league_id",
+                                                placeholder="e.g. 227356693")
+            with espn_col2:
+                espn_s2 = st.text_input("espn_s2 cookie", key="espn_s2",
+                                         type="password", placeholder="Paste from browser...")
+            with espn_col3:
+                espn_swid = st.text_input("SWID", key="espn_swid",
+                                           placeholder="{XXXXXXXX-XXXX-...}")
+
+            if espn_league_id and espn_s2 and espn_swid:
+                live_col1, live_col2 = st.columns([1, 3])
+
+                with live_col1:
+                    if st.button("Sync Draft Picks", type="primary", key="sync_draft_btn"):
+                        try:
+                            from espn_api.football import League
+
+                            league = League(
+                                league_id=int(espn_league_id),
+                                year=2026,
+                                espn_s2=espn_s2,
+                                swid=espn_swid,
+                            )
+
+                            if not league.draft:
+                                st.warning("No draft picks found yet. Is the draft in progress?")
+                            else:
+                                # Build espn_id -> player_id lookup from our database
+                                espn_to_pid: dict[int, str] = {}
+                                for pid, record in db.players.items():
+                                    if record.espn_id:
+                                        espn_to_pid[record.espn_id] = pid
+
+                                # Also check players already on the draft board
+                                board_pids = set(all_draft_data["player_id"].tolist()) if not all_draft_data.empty else set()
+
+                                matched = 0
+                                unmatched = []
+
+                                for pick in league.draft:
+                                    espn_pid = pick.playerId
+                                    player_name = pick.playerName
+
+                                    # Find matching player_id in our database
+                                    our_pid = espn_to_pid.get(espn_pid)
+
+                                    if our_pid and our_pid in board_pids:
+                                        # Mark as drafted across ALL users
+                                        mask = all_draft_data["player_id"] == our_pid
+                                        if mask.any() and not all_draft_data.loc[mask, "drafted"].all():
+                                            all_draft_data.loc[mask, "drafted"] = True
+                                            matched += 1
+                                    elif our_pid and our_pid not in board_pids:
+                                        # Player is in our DB but not on anyone's board — skip
+                                        pass
+                                    else:
+                                        # Try matching by name as fallback
+                                        name_lower = player_name.lower().strip()
+                                        name_match = all_draft_data[
+                                            all_draft_data["name"].str.lower().str.strip() == name_lower
+                                        ]
+                                        if not name_match.empty:
+                                            mask = all_draft_data["name"].str.lower().str.strip() == name_lower
+                                            if not all_draft_data.loc[mask, "drafted"].all():
+                                                all_draft_data.loc[mask, "drafted"] = True
+                                                matched += 1
+                                        else:
+                                            unmatched.append(f"{player_name} (ESPN ID: {espn_pid})")
+
+                                if matched > 0:
+                                    _save_draft_sheet(all_draft_data)
+
+                                st.success(f"Synced {len(league.draft)} picks — {matched} newly marked as drafted on your board.")
+
+                                if unmatched:
+                                    with st.expander(f"{len(unmatched)} drafted players not on any board"):
+                                        for name in unmatched:
+                                            st.text(name)
+
+                        except Exception as e:
+                            st.error(f"ESPN connection failed: {e}")
+
+                with live_col2:
+                    st.caption("Click 'Sync Draft Picks' to pull the latest picks from your ESPN draft and mark them as taken on your board.")
+            elif espn_league_id or espn_s2 or espn_swid:
+                st.info("Fill in all three fields (League ID, espn_s2, SWID) to enable live draft sync.")

@@ -1050,6 +1050,7 @@ class PlayerDatabase:
                     record = self.players[pid]
                     record.current_team = team
                     record.name = name
+                    record.position = position
 
                     existing_years = {s.year for s in record.seasons}
                     if year not in existing_years:
